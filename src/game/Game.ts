@@ -21,6 +21,7 @@ declare global {
       fail: () => GamePhase;
       reset: () => GamePhase;
       activeExplosions: () => number;
+      triggeredExplosions: () => number;
     };
   }
 }
@@ -97,7 +98,7 @@ export class Game {
   }
 
   private tick = (): void => {
-    const delta = this.clock.getDelta();
+    const delta = Math.min(this.clock.getDelta(), 0.05);
     if (this.phase !== 'failed' && this.phase !== 'escaped') {
       this.player.update(delta);
     }
@@ -333,6 +334,7 @@ export class Game {
         return this.phase;
       },
       activeExplosions: () => this.effects.activeBlastCount,
+      triggeredExplosions: () => this.effects.totalTriggeredBlastCount,
     };
   }
 

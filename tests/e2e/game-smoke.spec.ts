@@ -35,6 +35,7 @@ test('supports failure, checkpoint reset, and solved exit flow', async ({ page }
 
   const failedPhase = await page.evaluate(() => window.__minesweeperDebug?.fail());
   expect(failedPhase).toBe('failed');
+  await expect.poll(async () => page.evaluate(() => window.__minesweeperDebug?.triggeredExplosions() ?? 0)).toBeGreaterThan(0);
   await expect.poll(async () => page.evaluate(() => window.__minesweeperDebug?.activeExplosions() ?? 0)).toBeGreaterThan(0);
   await expect(page.getByText('Mine triggered. Checkpoint restored.')).toBeVisible();
   await expect(page.getByText('Alarm: mine detected')).toBeVisible();

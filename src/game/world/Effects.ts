@@ -24,6 +24,7 @@ type Blast = {
 
 export class Effects {
   private readonly blasts: Blast[] = [];
+  private triggeredBlastCount = 0;
 
   constructor(private readonly scene: THREE.Scene) {}
 
@@ -31,7 +32,12 @@ export class Effects {
     return this.blasts.length;
   }
 
+  get totalTriggeredBlastCount(): number {
+    return this.triggeredBlastCount;
+  }
+
   triggerMineBlast(position: THREE.Vector3): void {
+    this.triggeredBlastCount += 1;
     const group = new THREE.Group();
     group.position.copy(position);
     group.position.y = 0.18;
@@ -64,7 +70,7 @@ export class Effects {
       ...this.createSmokeParticles(group),
     ];
     this.scene.add(group);
-    this.blasts.push({ group, light, core, scorch, shockwaves, particles, elapsed: 0, duration: 2.2 });
+    this.blasts.push({ group, light, core, scorch, shockwaves, particles, elapsed: 0, duration: 2.8 });
   }
 
   update(delta: number): void {
