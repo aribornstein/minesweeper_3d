@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>First-Person Minesweeper</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game-canvas" aria-label="First-person Minesweeper prototype"></canvas>
+      <header class="mission-title">
+        <strong>First-Person Minesweeper</strong>
+        <span>Immersive Puzzle-Thriller</span>
+      </header>
+      <div id="hud" class="hud">
+        <section class="hud-panel scanner">
+          <span class="hud-kicker">Scanner v2.1</span>
+          <strong id="scanner-title">Analyzing...</strong>
+          <span id="scanner-detail">Range: 1 tile</span>
+        </section>
+        <section class="hud-panel objective">
+          <span id="sector-label" class="hud-kicker">Training Facility</span>
+          <strong id="objective-title">Reach the Exit</strong>
+          <span id="objective-detail">Avoid all mines</span>
+        </section>
+        <section class="hud-panel progress-panel">
+          <span class="hud-kicker">Route Status</span>
+          <strong id="status-title">Checkpoint armed</strong>
+          <span id="status-detail">Deduce the safe path tile by tile</span>
+          <div class="meters" aria-label="Puzzle progress">
+            <span id="progress-safe">Safe 0/0</span>
+            <span id="progress-flags">Flags 0/0</span>
+          </div>
+        </section>
+      </div>
+      <div id="state-banner" class="state-banner" hidden></div>
+      <aside class="legend" aria-label="Tile legend">
+        <span><i class="swatch swatch-safe"></i>Safe</span>
+        <span><i class="swatch swatch-unknown"></i>Unknown</span>
+        <span><i class="swatch swatch-flag"></i>Beacon</span>
+        <span><i class="swatch swatch-mine"></i>Mine</span>
+      </aside>
+      <footer class="loop-strip" aria-label="Failure to success loop">
+        <span id="loop-risk">Risk: choose carefully</span>
+        <span id="loop-learn">Learn: clues persist through memory</span>
+        <span id="loop-solve">Solve: unlock the exit route</span>
+      </footer>
+      <button id="start-button" class="start-button" type="button">Enter Training Sector</button>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

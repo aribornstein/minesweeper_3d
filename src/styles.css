@@ -1,0 +1,316 @@
+:root {
+  color: #e8edf0;
+  background: #050709;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+kbd {
+  font: inherit;
+}
+
+#game-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+}
+
+#app::after {
+  content: "";
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(116, 219, 255, 0.86);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  box-shadow: 0 0 18px rgba(116, 219, 255, 0.7);
+}
+
+.mission-title {
+  position: fixed;
+  left: 16px;
+  top: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  color: #f3f0e6;
+  text-transform: uppercase;
+  pointer-events: none;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.88);
+}
+
+.mission-title strong {
+  font-size: clamp(19px, 2.4vw, 32px);
+  line-height: 1;
+}
+
+.mission-title span {
+  color: #31c9f5;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.hud {
+  position: fixed;
+  inset: 58px 16px auto 16px;
+  display: grid;
+  grid-template-columns: minmax(210px, 290px) minmax(210px, 260px) minmax(260px, 340px);
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.hud-panel {
+  border: 1px solid rgba(120, 157, 170, 0.36);
+  background: rgba(5, 9, 12, 0.72);
+  border-radius: 6px;
+  padding: 12px 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.hud-panel strong,
+.hud-panel span {
+  display: block;
+}
+
+.hud-kicker {
+  color: #48cdf4;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.scanner strong {
+  color: #f2c33e;
+  font-size: 22px;
+  margin: 6px 0 4px;
+  text-transform: uppercase;
+}
+
+.objective strong,
+.progress-panel strong {
+  color: #f6f7ef;
+  font-size: 18px;
+  margin: 6px 0 4px;
+}
+
+.scanner span:last-child,
+.objective span:last-child,
+.progress-panel span,
+.meters span {
+  color: #a8bac2;
+  font-size: 13px;
+}
+
+.meters {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.meters span {
+  border: 1px solid rgba(72, 205, 244, 0.28);
+  border-radius: 4px;
+  padding: 4px 8px;
+  background: rgba(72, 205, 244, 0.08);
+}
+
+.state-banner {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 36px));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  padding: 18px 22px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  background: rgba(8, 12, 14, 0.82);
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.state-banner[data-state="failed"] {
+  color: #ff533d;
+  border-color: rgba(255, 83, 61, 0.5);
+}
+
+.state-banner[data-state="solved"] {
+  color: #61e799;
+  border-color: rgba(97, 231, 153, 0.5);
+}
+
+.state-banner[data-state="escaped"] {
+  color: #7ce7ff;
+  border-color: rgba(124, 231, 255, 0.5);
+}
+
+.legend {
+  position: fixed;
+  right: 16px;
+  top: 12px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #cfd8dc;
+  background: rgba(5, 8, 10, 0.7);
+  pointer-events: none;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  display: inline-block;
+}
+
+.swatch-safe {
+  background: #d5d0c4;
+}
+
+.swatch-unknown {
+  background: #6f6a60;
+}
+
+.swatch-flag {
+  background: #d62020;
+}
+
+.swatch-mine {
+  background: #161616;
+}
+
+.loop-strip {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  pointer-events: none;
+}
+
+.loop-strip span {
+  border: 1px solid rgba(120, 157, 170, 0.28);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #8ea3ad;
+  background: rgba(5, 9, 12, 0.72);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.loop-strip span[data-active] {
+  color: #eefaff;
+  border-color: rgba(72, 205, 244, 0.45);
+  box-shadow: inset 0 0 24px rgba(72, 205, 244, 0.08);
+}
+
+body[data-phase="failed"] #app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at center, rgba(255, 68, 39, 0.2), rgba(255, 68, 39, 0.08) 24%, transparent 62%);
+}
+
+body[data-phase="solved"] #app::before,
+body[data-phase="escaped"] #app::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 42%, rgba(79, 255, 152, 0.16), transparent 58%);
+}
+
+.start-button {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(76, 205, 244, 0.56);
+  border-radius: 6px;
+  padding: 12px 18px;
+  color: #e9fbff;
+  background: rgba(7, 24, 31, 0.85);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 24px rgba(76, 205, 244, 0.22);
+  cursor: pointer;
+}
+
+.start-button:hover,
+.start-button:focus-visible {
+  background: rgba(15, 51, 64, 0.92);
+  outline: none;
+}
+
+@media (max-width: 760px) {
+  .mission-title {
+    right: 10px;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .hud {
+    inset: 76px 10px auto 10px;
+    grid-template-columns: 1fr;
+  }
+
+  .legend,
+  .loop-strip {
+    display: none;
+  }
+
+  .scanner strong {
+    font-size: 18px;
+  }
+
+  .state-banner {
+    font-size: 22px;
+  }
+}
