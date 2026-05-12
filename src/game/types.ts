@@ -21,6 +21,7 @@ export type RevealResult = {
 export type GamePhase = 'ready' | 'playing' | 'failed' | 'solved' | 'escaped';
 
 export type BoardProgress = {
+  levelNumber: number;
   mineCount: number;
   flaggedCount: number;
   correctFlagCount: number;
@@ -28,9 +29,28 @@ export type BoardProgress = {
   safeTileCount: number;
 };
 
+export type ChamberProfile = {
+  label: string;
+  floor: string;
+  wall: string;
+  wallDark: string;
+  panel: string;
+  trim: string;
+  coolTrim: string;
+  ceiling: string;
+  light: string;
+  sideLight: string;
+  warning: string;
+  stripeEvery: number;
+  lightEvery: number;
+};
+
 export type LevelDefinition = {
+  levelNumber: number;
   name: string;
   sector: string;
+  chamber: ChamberProfile;
+  mineDensity: number;
   width: number;
   depth: number;
   startTile: TileCoord;

@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { EXIT_TILE, PLAYER_HEIGHT, RAYCAST_DISTANCE } from './config';
-import { TRAINING_LEVEL } from './levels';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { PLAYER_HEIGHT, RAYCAST_DISTANCE, TILE_SIZE } from './config';
+import { createProceduralLevel } from './levels';
 import { MinesweeperBoard } from './systems/MinesweeperBoard';
 import { PlayerController } from './systems/PlayerController';
-import type { GamePhase, TileCoord, TileState } from './types';
+import type { GamePhase, LevelDefinition, TileCoord, TileState } from './types';
 import { Effects } from './world/Effects';
-import { createScene } from './world/SceneFactory';
+import { createFlagModel } from './world/FlagModel';
+import { createLevelEnvironment, createScene, disposeLevelEnvironment, type LevelEnvironment } from './world/SceneFactory';
 import { TileGrid } from './world/TileGrid';
 import { ViewModel } from './world/ViewModel';
 import { Hud } from '../ui/Hud';
@@ -22,58 +24,101 @@ declare global {
       reset: () => GamePhase;
       activeExplosions: () => number;
       triggeredExplosions: () => number;
+      cameraPosition: () => { x: number; y: number; z: number };
+      exitSignal: () => { glow: string; status: string };
+      level: () => { levelNumber: number; name: string; sector: string; chamber: string; width: number; depth: number; mineCount: number; mineDensity: number };
+      enterExit: () => GamePhase;
     };
   }
 }
+
+const LOCKED_EXIT_COLOR = '#ff3d2e';
+const UNLOCKED_EXIT_COLOR = '#36ff96';
+const LEVEL_TRANSITION_DURATION = 2.45;
+const LEVEL_TRANSITION_SWAP_TIME = 1.16;
+const TRANSITION_FADE_IN_START = 0.72;
+const TRANSITION_FADE_IN_END = 1.02;
+const TRANSITION_FADE_OUT_START = 1.3;
+const TRANSITION_FADE_OUT_END = 1.86;
+const EXIT_PANEL_CLOSED_Y = 1.23;
+const EXIT_PANEL_OPEN_Y = 4.15;
+const FLAG_THROW_DURATION = 0.46;
+
+type LevelTransition = {
+  elapsed: number;
+  nextLevel: LevelDefinition;
+  swapped: boolean;
+  startPosition: THREE.Vector3;
+  doorwayPosition: THREE.Vector3;
+  passagePosition: THREE.Vector3;
+  entryStartPosition: THREE.Vector3;
+  entryEndPosition: THREE.Vector3;
+};
+
+type FlagThrow = {
+  tile: TileState;
+  model: THREE.Group;
+  start: THREE.Vector3;
+  control: THREE.Vector3;
+  end: THREE.Vector3;
+  elapsed: number;
+};
 
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly clock = new THREE.Clock();
   private readonly raycaster = new THREE.Raycaster();
-  private readonly board = new MinesweeperBoard();
+  private currentLevel: LevelDefinition = createProceduralLevel();
+  private readonly board = new MinesweeperBoard(this.currentLevel);
   private readonly hud = new Hud();
   private readonly scene: THREE.Scene;
-  private readonly exitDoor: THREE.Group;
-  private readonly exitPanel: THREE.Object3D | undefined;
-  private readonly exitGlow: THREE.PointLight;
-  private readonly alarmLight: THREE.PointLight;
+  private levelEnvironment!: LevelEnvironment;
+  private exitDoor!: THREE.Group;
+  private exitPanel: THREE.Object3D | undefined;
+  private exitStatusLight: THREE.Mesh | undefined;
+  private exitGlow!: THREE.PointLight;
+  private alarmLight!: THREE.PointLight;
   private readonly tileGrid: TileGrid;
   private readonly player: PlayerController;
   private readonly viewModel = new ViewModel();
+  private readonly transitionVeil = createTransitionVeil();
   private readonly effects: Effects;
+  private readonly flagThrows: FlagThrow[] = [];
   private readonly reticle = new THREE.Vector2(0, 0);
   private phase: GamePhase = 'ready';
   private hoveredTile: TileState | undefined;
+  private levelTransition: LevelTransition | undefined;
   private shakeRemaining = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.VSMShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
+    this.renderer.toneMappingExposure = 0.86;
 
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-    const sceneParts = createScene();
+    const sceneParts = createScene(this.currentLevel);
     this.scene = sceneParts.scene;
-    this.exitDoor = sceneParts.exitDoor;
-    this.exitPanel = this.exitDoor.getObjectByName('ExitDoorPanel');
-    this.exitGlow = sceneParts.exitGlow;
-    this.alarmLight = sceneParts.alarmLight;
+    this.levelEnvironment = sceneParts.levelEnvironment;
+    this.applyLevelEnvironment(sceneParts.levelEnvironment);
+    this.setExitSignal(false);
+    this.scene.environment = this.createEnvironmentMap();
     this.scene.add(this.camera);
     this.camera.add(this.viewModel.group);
+    this.camera.add(this.transitionVeil);
 
-    this.tileGrid = new TileGrid(this.board.allTiles);
+    this.tileGrid = new TileGrid(this.board.allTiles, this.currentLevel);
     this.scene.add(this.tileGrid.group);
     this.effects = new Effects(this.scene);
 
-    this.player = new PlayerController(this.camera, canvas);
+    this.player = new PlayerController(this.camera, canvas, this.currentLevel);
     this.bindEvents();
-    this.hud.setLevel(TRAINING_LEVEL);
+    this.hud.setLevel(this.currentLevel);
     this.syncHud();
     this.exposeDebugApi();
   }
@@ -99,13 +144,25 @@ export class Game {
 
   private tick = (): void => {
     const delta = Math.min(this.clock.getDelta(), 0.05);
-    if (this.phase !== 'failed' && this.phase !== 'escaped') {
+    if (!this.levelTransition && this.phase !== 'failed' && this.phase !== 'escaped') {
       this.player.update(delta);
     }
-    this.updateTargetedTile();
+    this.updateLevelTransition(delta);
+    if (this.levelTransition) {
+      this.clearTargetedTile();
+    } else {
+      this.updateTargetedTile();
+    }
     this.tileGrid.animate(delta);
     this.effects.update(delta);
-    this.viewModel.update(delta, this.phase, this.hoveredTile, this.board.progress());
+    this.updateFlagThrows(delta);
+    this.viewModel.update(
+      delta,
+      this.phase,
+      this.hoveredTile,
+      this.board.progress(),
+      this.hoveredTile ? this.board.adjacentFlagCount(this.hoveredTile) : 0,
+    );
     this.animateExit(delta);
     this.updateCameraShake(delta);
     this.renderer.render(this.scene, this.camera);
@@ -117,9 +174,7 @@ export class Game {
     const hit = this.raycaster.intersectObjects(this.tileGrid.interactiveMeshes, false)[0];
 
     if (!hit) {
-      this.hoveredTile = undefined;
-      this.tileGrid.setHover(undefined);
-      this.hud.setScannerTile(undefined, 0, this.phase, this.board.progress());
+      this.clearTargetedTile();
       return;
     }
 
@@ -134,7 +189,22 @@ export class Game {
     );
   }
 
+  private clearTargetedTile(): void {
+    this.hoveredTile = undefined;
+    this.tileGrid.setHover(undefined);
+    this.hud.setScannerTile(undefined, 0, this.phase, this.board.progress());
+  }
+
   private onPointerDown = (event: PointerEvent): void => {
+    if ((this.phase === 'playing' || this.phase === 'solved') && !this.levelTransition && !this.player.hasPointerLock && this.player.canRequestPointerLock) {
+      this.player.lock();
+
+      if (event.button === 0) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     if (event.button === 2) {
       event.preventDefault();
       this.onFlag();
@@ -168,9 +238,18 @@ export class Game {
       return;
     }
 
+    const wasFlagged = this.hoveredTile.flagged;
     const tile = this.board.toggleFlag(this.hoveredTile);
     if (tile) {
-      this.tileGrid.updateTile(tile);
+      if (tile.flagged && !wasFlagged) {
+        this.tileGrid.setFlagMarkerSuppressed(tile, true);
+        this.tileGrid.updateTile(tile);
+        this.throwFlagAt(tile);
+      } else {
+        this.cancelFlagThrow(tile);
+        this.tileGrid.setFlagMarkerSuppressed(tile, false);
+        this.tileGrid.updateTile(tile);
+      }
     }
 
     this.checkSolved();
@@ -190,32 +269,37 @@ export class Game {
   };
 
   private reset(): void {
+    this.levelTransition = undefined;
+    this.setTransitionVeilOpacity(0);
+    this.clearFlagThrows();
     this.phase = 'playing';
     this.shakeRemaining = 0;
     this.alarmLight.intensity = 0;
     this.board.reset();
-    this.tileGrid.rebuild(this.board.allTiles);
+    this.tileGrid.rebuild(this.board.allTiles, this.currentLevel);
     this.tileGrid.setRouteVisible(false);
-    this.player.reset();
+    this.player.reset(this.currentLevel);
+    this.player.activate();
     if (this.exitPanel) {
-      this.exitPanel.position.y = 1.23;
+      this.exitPanel.position.y = EXIT_PANEL_CLOSED_Y;
     }
+    this.setExitSignal(false);
     this.syncHud();
   }
 
   private animateExit(delta: number): void {
-    const solved = this.phase === 'solved' || this.phase === 'escaped';
-    const targetY = solved ? 2.72 : 1.23;
-    this.exitGlow.intensity = THREE.MathUtils.damp(this.exitGlow.intensity, solved ? 11 : 3.5, 3, delta);
+    const unlocked = this.phase === 'solved' || (this.phase === 'escaped' && !this.levelTransition?.swapped);
+    const targetY = unlocked ? EXIT_PANEL_OPEN_Y : EXIT_PANEL_CLOSED_Y;
+    this.setExitSignal(unlocked);
+    this.exitGlow.intensity = THREE.MathUtils.damp(this.exitGlow.intensity, unlocked ? 11 : 3.5, 3, delta);
 
     if (this.exitPanel) {
       this.exitPanel.position.y = THREE.MathUtils.damp(this.exitPanel.position.y, targetY, 3.5, delta);
     }
 
-    const exitDistance = this.camera.position.distanceTo(this.tileGrid.tileWorldPosition(EXIT_TILE));
-    if (this.phase === 'solved' && exitDistance < 1.9) {
-      this.phase = 'escaped';
-      this.syncHud();
+    const exitDistance = this.camera.position.distanceTo(this.tileGrid.tileWorldPosition(this.currentLevel.exitTile));
+    if (this.phase === 'solved' && exitDistance < 1.9 && !this.levelTransition) {
+      this.beginLevelTransition();
     }
   }
 
@@ -224,6 +308,7 @@ export class Game {
       this.phase = 'playing';
     }
 
+    this.player.activate();
     this.syncHud();
   }
 
@@ -245,6 +330,7 @@ export class Game {
     }
 
     this.phase = 'solved';
+    this.setExitSignal(true);
     this.board.routeTiles().forEach((tile) => {
       if (!tile.hasMine) {
         tile.revealed = true;
@@ -257,6 +343,8 @@ export class Game {
 
   private failAt(tile: TileState): void {
     this.phase = 'failed';
+    this.player.deactivate();
+    this.clearFlagThrows();
     this.board.revealAllMines().forEach((mineTile) => this.tileGrid.updateTile(mineTile));
     this.tileGrid.setRouteVisible(false);
     this.effects.triggerMineBlast(this.tileGrid.tileWorldPosition(tile));
@@ -277,6 +365,67 @@ export class Game {
     const strength = this.shakeRemaining * 0.035;
     this.camera.rotation.z = (Math.random() - 0.5) * strength;
     this.camera.position.y = PLAYER_HEIGHT + (Math.random() - 0.5) * strength;
+  }
+
+  private throwFlagAt(tile: TileState): void {
+    this.viewModel.triggerFlagThrow();
+    this.camera.updateMatrixWorld(true);
+    const start = this.viewModel.flagWorldPosition();
+    const end = this.tileGrid.tileWorldPosition(tile).add(new THREE.Vector3(0, 0.32, 0));
+    const control = start.clone().lerp(end, 0.5).add(new THREE.Vector3(0, 0.72, 0));
+    const model = createFlagModel({ withBase: false, scale: 0.9 });
+    model.position.copy(start);
+    model.rotation.set(-0.85, this.camera.rotation.y, 0.45);
+    this.scene.add(model);
+    this.flagThrows.push({ tile, model, start, control, end, elapsed: 0 });
+  }
+
+  private updateFlagThrows(delta: number): void {
+    for (let index = this.flagThrows.length - 1; index >= 0; index -= 1) {
+      const flagThrow = this.flagThrows[index];
+      flagThrow.elapsed += delta;
+      const progress = Math.min(flagThrow.elapsed / FLAG_THROW_DURATION, 1);
+      const eased = smoothstep(progress);
+      const firstLeg = flagThrow.start.clone().lerp(flagThrow.control, eased);
+      const secondLeg = flagThrow.control.clone().lerp(flagThrow.end, eased);
+      flagThrow.model.position.copy(firstLeg.lerp(secondLeg, eased));
+      flagThrow.model.rotation.x = -0.9 + eased * 0.9;
+      flagThrow.model.rotation.y += delta * 8;
+      flagThrow.model.rotation.z = 0.45 - eased * 0.45;
+
+      if (progress >= 1) {
+        this.scene.remove(flagThrow.model);
+        disposeObject(flagThrow.model);
+        this.flagThrows.splice(index, 1);
+        this.tileGrid.setFlagMarkerSuppressed(flagThrow.tile, false);
+        if (flagThrow.tile.flagged) {
+          this.tileGrid.updateTile(flagThrow.tile);
+        }
+      }
+    }
+  }
+
+  private cancelFlagThrow(tile: TileState): void {
+    for (let index = this.flagThrows.length - 1; index >= 0; index -= 1) {
+      const flagThrow = this.flagThrows[index];
+
+      if (flagThrow.tile.x !== tile.x || flagThrow.tile.z !== tile.z) {
+        continue;
+      }
+
+      this.scene.remove(flagThrow.model);
+      disposeObject(flagThrow.model);
+      this.flagThrows.splice(index, 1);
+    }
+  }
+
+  private clearFlagThrows(): void {
+    this.flagThrows.forEach((flagThrow) => {
+      this.scene.remove(flagThrow.model);
+      disposeObject(flagThrow.model);
+      this.tileGrid.setFlagMarkerSuppressed(flagThrow.tile, false);
+    });
+    this.flagThrows.length = 0;
   }
 
   private syncHud(): void {
@@ -335,12 +484,221 @@ export class Game {
       },
       activeExplosions: () => this.effects.activeBlastCount,
       triggeredExplosions: () => this.effects.totalTriggeredBlastCount,
+      cameraPosition: () => ({ x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z }),
+      exitSignal: () => ({
+        glow: `#${this.exitGlow.color.getHexString()}`,
+        status: this.exitStatusLight?.material instanceof THREE.MeshStandardMaterial ? `#${this.exitStatusLight.material.emissive.getHexString()}` : '#000000',
+      }),
+      level: () => ({
+        levelNumber: this.currentLevel.levelNumber,
+        name: this.currentLevel.name,
+        sector: this.currentLevel.sector,
+        chamber: this.currentLevel.chamber.label,
+        width: this.currentLevel.width,
+        depth: this.currentLevel.depth,
+        mineCount: this.currentLevel.mines.length,
+        mineDensity: this.currentLevel.mineDensity,
+      }),
+      enterExit: () => {
+        if (this.phase === 'solved') {
+          const exitPosition = this.tileGrid.tileWorldPosition(this.currentLevel.exitTile);
+          this.camera.position.set(exitPosition.x, PLAYER_HEIGHT, exitPosition.z);
+          this.beginLevelTransition();
+        }
+
+        return this.phase;
+      },
     };
+  }
+
+  private beginLevelTransition(): void {
+    const nextLevel = createProceduralLevel(this.currentLevel.levelNumber + 1);
+    const exitPosition = this.tileGrid.tileWorldPosition(this.currentLevel.exitTile);
+    const entryEndPosition = this.levelStartPosition(nextLevel);
+    const entryStartPosition = entryEndPosition.clone().add(new THREE.Vector3(0, 0, 2.15));
+
+    this.phase = 'escaped';
+    this.setTransitionVeilOpacity(0);
+    this.player.deactivate();
+    this.hoveredTile = undefined;
+    this.tileGrid.setHover(undefined);
+    this.levelTransition = {
+      elapsed: 0,
+      nextLevel,
+      swapped: false,
+      startPosition: this.camera.position.clone(),
+      doorwayPosition: new THREE.Vector3(exitPosition.x, PLAYER_HEIGHT + 0.02, exitPosition.z - 1.05),
+      passagePosition: new THREE.Vector3(exitPosition.x, PLAYER_HEIGHT + 0.04, exitPosition.z - 2.42),
+      entryStartPosition,
+      entryEndPosition,
+    };
+    this.syncHud();
+  }
+
+  private updateLevelTransition(delta: number): void {
+    if (!this.levelTransition) {
+      return;
+    }
+
+    const transition = this.levelTransition;
+    transition.elapsed = Math.min(LEVEL_TRANSITION_DURATION, transition.elapsed + delta);
+
+    if (transition.elapsed < LEVEL_TRANSITION_SWAP_TIME) {
+      const progress = smoothstep(transition.elapsed / LEVEL_TRANSITION_SWAP_TIME);
+      const firstLeg = Math.min(progress / 0.58, 1);
+      const secondLeg = Math.max((progress - 0.58) / 0.42, 0);
+      this.updateTransitionVeil(transition.elapsed);
+      this.camera.position.lerpVectors(transition.startPosition, transition.doorwayPosition, smoothstep(firstLeg));
+      this.camera.position.lerp(transition.passagePosition, smoothstep(secondLeg));
+      this.camera.position.y += Math.sin(progress * Math.PI * 3) * 0.018;
+      this.camera.rotation.set(THREE.MathUtils.lerp(this.camera.rotation.x, -0.12, 0.12), THREE.MathUtils.lerp(this.camera.rotation.y, 0, 0.08), 0);
+      return;
+    }
+
+    if (!transition.swapped) {
+      this.loadLevel(transition.nextLevel, 'escaped');
+      this.camera.position.copy(transition.entryStartPosition);
+      transition.swapped = true;
+    }
+
+    this.updateTransitionVeil(transition.elapsed);
+    const entryProgress = smoothstep((transition.elapsed - LEVEL_TRANSITION_SWAP_TIME) / (LEVEL_TRANSITION_DURATION - LEVEL_TRANSITION_SWAP_TIME));
+    this.camera.position.lerpVectors(transition.entryStartPosition, transition.entryEndPosition, entryProgress);
+    this.camera.position.y += Math.sin(entryProgress * Math.PI * 4) * 0.018;
+    this.camera.rotation.set(THREE.MathUtils.lerp(this.camera.rotation.x, -0.18, 0.08), THREE.MathUtils.lerp(this.camera.rotation.y, 0, 0.08), 0);
+
+    if (transition.elapsed >= LEVEL_TRANSITION_DURATION) {
+      this.levelTransition = undefined;
+      this.setTransitionVeilOpacity(0);
+      this.phase = 'playing';
+      this.player.reset(this.currentLevel);
+      this.player.activate();
+      this.syncHud();
+    }
+  }
+
+  private updateTransitionVeil(elapsed: number): void {
+    if (elapsed < TRANSITION_FADE_IN_START) {
+      this.setTransitionVeilOpacity(0);
+      return;
+    }
+
+    if (elapsed < TRANSITION_FADE_IN_END) {
+      this.setTransitionVeilOpacity(smoothstep((elapsed - TRANSITION_FADE_IN_START) / (TRANSITION_FADE_IN_END - TRANSITION_FADE_IN_START)));
+      return;
+    }
+
+    if (elapsed < TRANSITION_FADE_OUT_START) {
+      this.setTransitionVeilOpacity(1);
+      return;
+    }
+
+    if (elapsed < TRANSITION_FADE_OUT_END) {
+      this.setTransitionVeilOpacity(1 - smoothstep((elapsed - TRANSITION_FADE_OUT_START) / (TRANSITION_FADE_OUT_END - TRANSITION_FADE_OUT_START)));
+      return;
+    }
+
+    this.setTransitionVeilOpacity(0);
+  }
+
+  private setTransitionVeilOpacity(opacity: number): void {
+    this.transitionVeil.material.opacity = opacity;
+    this.transitionVeil.visible = opacity > 0.01;
+  }
+
+  private loadLevel(level: LevelDefinition, phase: GamePhase): void {
+    this.clearFlagThrows();
+    this.currentLevel = level;
+    this.phase = phase;
+    this.hoveredTile = undefined;
+    this.shakeRemaining = 0;
+    this.board.loadLevel(level);
+    this.tileGrid.rebuild(this.board.allTiles, level);
+    this.tileGrid.setRouteVisible(false);
+    this.scene.remove(this.levelEnvironment.group);
+    disposeLevelEnvironment(this.levelEnvironment);
+    this.levelEnvironment = createLevelEnvironment(level);
+    this.scene.add(this.levelEnvironment.group);
+    this.applyLevelEnvironment(this.levelEnvironment);
+    this.alarmLight.intensity = 0;
+    this.player.reset(level);
+    this.hud.setLevel(level);
+    this.setExitSignal(false);
+    this.syncHud();
+  }
+
+  private levelStartPosition(level: LevelDefinition): THREE.Vector3 {
+    return new THREE.Vector3(
+      (level.startTile.x - (level.width - 1) / 2) * TILE_SIZE,
+      PLAYER_HEIGHT,
+      (level.depth * TILE_SIZE) / 2 + 1.6,
+    );
+  }
+
+  private applyLevelEnvironment(environment: LevelEnvironment): void {
+    this.exitDoor = environment.exitDoor;
+    this.exitPanel = this.exitDoor.getObjectByName('ExitDoorPanel');
+    const exitStatusLight = this.exitDoor.getObjectByName('ExitDoorStatusLight');
+    this.exitStatusLight = exitStatusLight instanceof THREE.Mesh ? exitStatusLight : undefined;
+    this.exitGlow = environment.exitGlow;
+    this.alarmLight = environment.alarmLight;
+  }
+
+  private setExitSignal(unlocked: boolean): void {
+    const color = unlocked ? UNLOCKED_EXIT_COLOR : LOCKED_EXIT_COLOR;
+    this.exitGlow.color.set(color);
+
+    if (this.exitStatusLight?.material instanceof THREE.MeshStandardMaterial) {
+      this.exitStatusLight.material.color.set(unlocked ? '#163726' : '#4a1813');
+      this.exitStatusLight.material.emissive.set(unlocked ? '#0a5a2f' : '#5a0906');
+      this.exitStatusLight.material.emissiveIntensity = unlocked ? 0.95 : 0.7;
+    }
   }
 
   private onResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
+
+  private createEnvironmentMap(): THREE.Texture {
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const environment = pmrem.fromScene(new RoomEnvironment(this.renderer), 0.04).texture;
+    pmrem.dispose();
+    return environment;
+  }
+}
+
+function smoothstep(value: number): number {
+  const clamped = THREE.MathUtils.clamp(value, 0, 1);
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+function createTransitionVeil(): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+  const material = new THREE.MeshBasicMaterial({
+    color: '#010304',
+    transparent: true,
+    opacity: 0,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const veil = new THREE.Mesh(new THREE.PlaneGeometry(0.64, 0.42), material);
+  veil.position.set(0, 0, -0.2);
+  veil.renderOrder = 1000;
+  veil.visible = false;
+  return veil;
+}
+
+function disposeObject(object: THREE.Object3D): void {
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return;
+    }
+
+    child.geometry.dispose();
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    materials.forEach((material) => material.dispose());
+  });
 }

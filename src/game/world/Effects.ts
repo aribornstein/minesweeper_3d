@@ -15,6 +15,7 @@ type Blast = {
   group: THREE.Group;
   light: THREE.PointLight;
   core: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
+  flash: THREE.Sprite;
   scorch: THREE.Mesh<THREE.CircleGeometry, THREE.MeshBasicMaterial>;
   shockwaves: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>[];
   particles: BlastParticle[];
@@ -58,9 +59,23 @@ export class Effects {
     core.position.y = 0.45;
     group.add(core);
 
+    const flash = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: createRadialGlowTexture(),
+        color: '#ffb05e',
+        transparent: true,
+        opacity: 0.92,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    flash.position.y = 0.62;
+    flash.scale.set(1.65, 1.65, 1);
+    group.add(flash);
+
     const shockwaves = this.createShockwaves(group);
 
-    const light = new THREE.PointLight('#ff4b2f', 75, 9, 2);
+    const light = new THREE.PointLight('#ff4b2f', 92, 10, 2);
     light.position.y = 1.1;
     group.add(light);
 
@@ -70,7 +85,7 @@ export class Effects {
       ...this.createSmokeParticles(group),
     ];
     this.scene.add(group);
-    this.blasts.push({ group, light, core, scorch, shockwaves, particles, elapsed: 0, duration: 2.8 });
+    this.blasts.push({ group, light, core, flash, scorch, shockwaves, particles, elapsed: 0, duration: 2.8 });
   }
 
   update(delta: number): void {
@@ -82,9 +97,11 @@ export class Effects {
 
       blast.core.scale.setScalar(1 + progress * 4.8);
       blast.core.material.opacity = Math.max(0, 1 - progress * 3.2);
+      blast.flash.scale.setScalar(1.25 + progress * 6.4);
+      blast.flash.material.opacity = Math.max(0, 0.92 * (1 - progress * 3.8));
       blast.scorch.scale.setScalar(1 + Math.min(progress * 1.3, 1));
       blast.scorch.material.opacity = 0.62 * Math.max(0, 1 - progress * 0.38);
-      blast.light.intensity = 75 * Math.max(0, 1 - progress * 2.4);
+      blast.light.intensity = 92 * Math.max(0, 1 - progress * 2.4);
 
       blast.shockwaves.forEach((shockwave, shockwaveIndex) => {
         const offsetProgress = THREE.MathUtils.clamp((progress - shockwaveIndex * 0.1) / 0.55, 0, 1);
@@ -183,8 +200,8 @@ export class Effects {
     const particles: BlastParticle[] = [];
     const smokeMaterial = new THREE.MeshBasicMaterial({ color: '#261814', transparent: true, opacity: 0.38, depthWrite: false });
 
-    for (let particleIndex = 0; particleIndex < 24; particleIndex += 1) {
-      const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.18 + Math.random() * 0.16, 12, 8), smokeMaterial.clone());
+    for (let particleIndex = 0; particleIndex < 30; particleIndex += 1) {
+      const smoke = new THREE.Mesh(new THREE.SphereGeometry(0.18 + Math.random() * 0.16, 16, 10), smokeMaterial.clone());
       const angle = Math.random() * Math.PI * 2;
       const speed = 0.35 + Math.random() * 1.1;
       const velocity = new THREE.Vector3(Math.cos(angle) * speed, 0.7 + Math.random() * 1.4, Math.sin(angle) * speed);
@@ -224,7 +241,35 @@ export class Effects {
         } else {
           material.dispose();
         }
+      } else if (child instanceof THREE.Sprite) {
+        child.material.map?.dispose();
+        child.material.dispose();
       }
     });
   }
+}
+
+function createRadialGlowTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Could not create explosion glow texture.');
+  }
+
+  const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+  gradient.addColorStop(0.18, 'rgba(255, 222, 128, 0.95)');
+  gradient.addColorStop(0.48, 'rgba(255, 82, 42, 0.42)');
+  gradient.addColorStop(1, 'rgba(255, 82, 42, 0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, size, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  return texture;
 }

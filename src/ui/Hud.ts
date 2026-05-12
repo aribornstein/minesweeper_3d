@@ -1,6 +1,7 @@
 import type { BoardProgress, GamePhase, LevelDefinition, TileState } from '../game/types';
 
 export class Hud {
+  private level: LevelDefinition | undefined;
   private readonly scannerTitle = document.querySelector<HTMLElement>('#scanner-title');
   private readonly scannerDetail = document.querySelector<HTMLElement>('#scanner-detail');
   private readonly sectorLabel = document.querySelector<HTMLElement>('#sector-label');
@@ -21,6 +22,8 @@ export class Hud {
   }
 
   setLevel(level: LevelDefinition): void {
+    this.level = level;
+
     if (this.sectorLabel) {
       this.sectorLabel.textContent = `${level.name} / ${level.sector}`;
     }
@@ -30,8 +33,9 @@ export class Hud {
     document.body.dataset.phase = phase;
 
     if (this.startButton) {
-      this.startButton.hidden = phase === 'playing' || phase === 'solved';
-      this.startButton.textContent = phase === 'ready' ? 'Enter Training Sector' : 'Restart Training Sector';
+      this.startButton.hidden = phase === 'playing' || phase === 'solved' || phase === 'escaped';
+      const chamberLabel = this.level ? `Chamber ${String(this.level.levelNumber).padStart(2, '0')}` : 'Training Sector';
+      this.startButton.textContent = phase === 'ready' ? `Enter ${chamberLabel}` : `Restart ${chamberLabel}`;
     }
 
     if (!this.banner) {

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { BOARD_DEPTH, BOARD_WIDTH, MOUSE_SENSITIVITY, PLAYER_HEIGHT, START_TILE, TILE_SIZE, WALK_SPEED } from '../config';
+import { MOUSE_SENSITIVITY, PLAYER_HEIGHT, TILE_SIZE, WALK_SPEED } from '../config';
+import type { LevelDefinition } from '../types';
 
 const DEFAULT_PITCH = -0.32;
 const DEFAULT_YAW = 0;
@@ -8,9 +9,15 @@ export class PlayerController {
   private readonly keys = new Set<string>();
   private pitch = DEFAULT_PITCH;
   private yaw = DEFAULT_YAW;
-  private enabled = false;
+  private movementEnabled = false;
+  private pointerLocked = false;
+  private pointerLockUnavailable = false;
 
-  constructor(private readonly camera: THREE.PerspectiveCamera, private readonly canvas: HTMLCanvasElement) {
+  constructor(
+    private readonly camera: THREE.PerspectiveCamera,
+    private readonly canvas: HTMLCanvasElement,
+    private level: LevelDefinition,
+  ) {
     this.camera.rotation.order = 'YXZ';
     this.camera.position.copy(this.startPosition());
     this.updateCameraRotation();
@@ -29,11 +36,39 @@ export class PlayerController {
   }
 
   lock(): void {
-    this.canvas.requestPointerLock();
+    this.activate();
+    if (this.pointerLockUnavailable) {
+      return;
+    }
+
+    void this.canvas.requestPointerLock().catch(() => {
+      this.pointerLockUnavailable = true;
+    });
+  }
+
+  get hasPointerLock(): boolean {
+    return this.pointerLocked;
+  }
+
+  get canRequestPointerLock(): boolean {
+    return !this.pointerLockUnavailable;
+  }
+
+  activate(): void {
+    this.movementEnabled = true;
+  }
+
+  deactivate(): void {
+    this.movementEnabled = false;
+    this.keys.clear();
+
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock();
+    }
   }
 
   update(delta: number): void {
-    if (!this.enabled) {
+    if (!this.movementEnabled) {
       return;
     }
 
@@ -45,10 +80,10 @@ export class PlayerController {
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
     const movement = new THREE.Vector3();
 
-    if (this.keys.has('KeyW')) movement.add(forward);
-    if (this.keys.has('KeyS')) movement.sub(forward);
-    if (this.keys.has('KeyD')) movement.add(right);
-    if (this.keys.has('KeyA')) movement.sub(right);
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) movement.add(forward);
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) movement.sub(forward);
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) movement.add(right);
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) movement.sub(right);
 
     if (movement.lengthSq() > 0) {
       movement.normalize().multiplyScalar(WALK_SPEED * delta);
@@ -57,7 +92,8 @@ export class PlayerController {
     }
   }
 
-  reset(): void {
+  reset(level: LevelDefinition = this.level): void {
+    this.level = level;
     this.camera.position.copy(this.startPosition());
     this.pitch = DEFAULT_PITCH;
     this.yaw = DEFAULT_YAW;
@@ -66,13 +102,17 @@ export class PlayerController {
 
   private startPosition(): THREE.Vector3 {
     return new THREE.Vector3(
-      (START_TILE.x - (BOARD_WIDTH - 1) / 2) * TILE_SIZE,
+      (this.level.startTile.x - (this.level.width - 1) / 2) * TILE_SIZE,
       PLAYER_HEIGHT,
-      (BOARD_DEPTH * TILE_SIZE) / 2 + 1.6,
+      (this.level.depth * TILE_SIZE) / 2 + 1.6,
     );
   }
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code.startsWith('Arrow')) {
+      event.preventDefault();
+    }
+
     this.keys.add(event.code);
   };
 
@@ -81,7 +121,7 @@ export class PlayerController {
   };
 
   private onMouseMove = (event: MouseEvent): void => {
-    if (!this.enabled) {
+    if (!this.pointerLocked) {
       return;
     }
 
@@ -92,7 +132,8 @@ export class PlayerController {
   };
 
   private onPointerLockChange = (): void => {
-    this.enabled = document.pointerLockElement === this.canvas;
+    this.pointerLocked = document.pointerLockElement === this.canvas;
+    this.pointerLockUnavailable = this.pointerLockUnavailable && !this.pointerLocked;
   };
 
   private updateCameraRotation(): void {
@@ -100,8 +141,8 @@ export class PlayerController {
   }
 
   private clampToRoom(): void {
-    const halfWidth = (BOARD_WIDTH * TILE_SIZE) / 2 + 1.5;
-    const halfDepth = (BOARD_DEPTH * TILE_SIZE) / 2 + 2.4;
+    const halfWidth = (this.level.width * TILE_SIZE) / 2 + 1.5;
+    const halfDepth = (this.level.depth * TILE_SIZE) / 2 + 2.4;
     this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -halfWidth, halfWidth);
     this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -halfDepth, halfDepth);
     this.camera.position.y = PLAYER_HEIGHT;

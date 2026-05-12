@@ -2,11 +2,22 @@ import { TRAINING_LEVEL } from '../levels';
 import type { BoardProgress, LevelDefinition, RevealResult, TileCoord, TileState } from '../types';
 
 export class MinesweeperBoard {
-  readonly width: number;
-  readonly depth: number;
+  width: number;
+  depth: number;
   private tiles: TileState[] = [];
 
-  constructor(private readonly level: LevelDefinition = TRAINING_LEVEL) {
+  constructor(private level: LevelDefinition = TRAINING_LEVEL) {
+    this.width = level.width;
+    this.depth = level.depth;
+    this.reset();
+  }
+
+  get currentLevel(): LevelDefinition {
+    return this.level;
+  }
+
+  loadLevel(level: LevelDefinition): void {
+    this.level = level;
     this.width = level.width;
     this.depth = level.depth;
     this.reset();
@@ -14,9 +25,13 @@ export class MinesweeperBoard {
 
   reset(): void {
     this.tiles = [];
+    this.width = this.level.width;
+    this.depth = this.level.depth;
+    const routeTiles = new Set(this.level.safeRoute.map((routeTile) => this.key(routeTile)));
 
     for (let tileZ = 0; tileZ < this.depth; tileZ += 1) {
       for (let tileX = 0; tileX < this.width; tileX += 1) {
+        const coord = { x: tileX, z: tileZ };
         this.tiles.push({
           x: tileX,
           z: tileZ,
@@ -24,9 +39,9 @@ export class MinesweeperBoard {
           revealed: false,
           flagged: false,
           adjacentMines: 0,
-          isStart: this.sameCoord({ x: tileX, z: tileZ }, this.level.startTile),
-          isExit: this.sameCoord({ x: tileX, z: tileZ }, this.level.exitTile),
-          isRouteHint: this.level.safeRoute.some((routeTile) => this.sameCoord(routeTile, { x: tileX, z: tileZ })),
+          isStart: this.sameCoord(coord, this.level.startTile),
+          isExit: this.sameCoord(coord, this.level.exitTile),
+          isRouteHint: routeTiles.has(this.key(coord)),
         });
       }
     }
@@ -41,7 +56,11 @@ export class MinesweeperBoard {
   }
 
   getTile(coord: TileCoord): TileState | undefined {
-    return this.tiles.find((tile) => tile.x === coord.x && tile.z === coord.z);
+    if (coord.x < 0 || coord.x >= this.width || coord.z < 0 || coord.z >= this.depth) {
+      return undefined;
+    }
+
+    return this.tiles[coord.z * this.width + coord.x];
   }
 
   reveal(coord: TileCoord): RevealResult {
@@ -59,9 +78,11 @@ export class MinesweeperBoard {
     const revealedTiles: TileState[] = [];
     const queue: TileState[] = [target];
     const visited = new Set<string>();
+    let queueIndex = 0;
 
-    while (queue.length > 0) {
-      const tile = queue.shift();
+    while (queueIndex < queue.length) {
+      const tile = queue[queueIndex];
+      queueIndex += 1;
 
       if (!tile || tile.flagged || visited.has(this.key(tile))) {
         continue;
@@ -147,6 +168,7 @@ export class MinesweeperBoard {
     const flaggedTiles = this.tiles.filter((tile) => tile.flagged);
 
     return {
+      levelNumber: this.level.levelNumber,
       mineCount: this.level.mines.length,
       flaggedCount: flaggedTiles.length,
       correctFlagCount: flaggedTiles.filter((tile) => tile.hasMine).length,
