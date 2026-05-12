@@ -2,6 +2,7 @@
 
 A Three.js first-person Minesweeper puzzle-thriller prototype inspired by the supplied storyboard. The current build is a playable vertical slice: walk the training sector, inspect tiles with the scanner, reveal safe numbers, flag mines, trigger and learn from failures, confirm the safe route, and unlock the exit.
 
+
 ## Run
 
 ```bash
