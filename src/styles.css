@@ -321,6 +321,115 @@ body[data-phase="escaped"] #app::before {
   outline: none;
 }
 
+.mobile-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  display: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.mobile-controls[data-enabled]:not([hidden]) {
+  display: block;
+}
+
+.mobile-look-pad {
+  position: absolute;
+  top: 18%;
+  right: 0;
+  bottom: 140px;
+  width: 58%;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.mobile-stick {
+  position: absolute;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  width: 132px;
+  aspect-ratio: 1;
+  border: 1px solid rgba(124, 231, 255, 0.46);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(72, 205, 244, 0.16), rgba(5, 10, 13, 0.42) 62%, rgba(5, 10, 13, 0.68));
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.46), inset 0 0 28px rgba(72, 205, 244, 0.08);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.mobile-stick::before,
+.mobile-stick::after {
+  content: "";
+  position: absolute;
+  background: rgba(124, 231, 255, 0.28);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.mobile-stick::before {
+  left: 20px;
+  right: 20px;
+  top: 50%;
+  height: 1px;
+}
+
+.mobile-stick::after {
+  top: 20px;
+  bottom: 20px;
+  left: 50%;
+  width: 1px;
+}
+
+.mobile-stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  aspect-ratio: 1;
+  margin: -28px 0 0 -28px;
+  border: 1px solid rgba(237, 252, 255, 0.72);
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(230, 250, 255, 0.82), rgba(72, 205, 244, 0.56));
+  box-shadow: 0 0 24px rgba(72, 205, 244, 0.42), inset 0 2px 0 rgba(255, 255, 255, 0.36);
+  pointer-events: none;
+}
+
+.mobile-actions {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(2, 78px);
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.mobile-action-button {
+  min-height: 58px;
+  border: 1px solid rgba(124, 231, 255, 0.46);
+  border-radius: 8px;
+  color: #edfcff;
+  background: linear-gradient(180deg, rgba(16, 48, 57, 0.88), rgba(6, 20, 25, 0.78));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  touch-action: manipulation;
+}
+
+.mobile-action-button:active {
+  transform: translateY(1px);
+  background: linear-gradient(180deg, rgba(26, 72, 82, 0.92), rgba(10, 29, 35, 0.86));
+}
+
+.mobile-action-button-small {
+  grid-column: 1 / -1;
+  min-height: 42px;
+}
+
 @media (max-width: 760px) {
   .mission-title {
     right: 10px;
@@ -348,5 +457,33 @@ body[data-phase="escaped"] #app::before {
 
   .start-button {
     bottom: 24px;
+  }
+}
+
+@media (pointer: coarse) {
+  #game-canvas {
+    cursor: default;
+  }
+
+  body[data-phase="playing"] .hud,
+  body[data-phase="solved"] .hud {
+    inset: 12px 10px auto 10px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  body[data-phase="playing"] .objective,
+  body[data-phase="playing"] .progress-panel,
+  body[data-phase="solved"] .objective,
+  body[data-phase="solved"] .progress-panel {
+    display: none;
+  }
+
+  .scanner {
+    width: min(300px, calc(100vw - 20px));
+  }
+
+  .scanner strong {
+    font-size: 17px;
   }
 }

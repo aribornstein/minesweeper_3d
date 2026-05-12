@@ -34,7 +34,8 @@ npm run test:e2e
 - Left click a revealed numbered tile to reveal adjacent tiles when matching flags are placed.
 - Right click or `F` flags or unflags the tile in the scanner reticle.
 - `R` resets the current run.
-- On phones, walking onto the center of a tile activates it: unknown tiles reveal, and revealed numbered tiles clear adjacent tiles when the matching flags are placed.
+- On phones, use the left on-screen stick to move, drag the right side to look, and use the Reveal, Flag, and Reset buttons for tile actions.
+- On phones, walking onto the center of a tile also activates it: unknown tiles reveal, and revealed numbered tiles clear adjacent tiles when the matching flags are placed.
 
 ## Scaffold
 

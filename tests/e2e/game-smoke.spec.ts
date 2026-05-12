@@ -162,6 +162,34 @@ test.describe('mobile step activation', () => {
     await page.waitForFunction(() => Boolean(window.__minesweeperDebug));
 
     await page.evaluate(() => window.__minesweeperDebug?.reset());
+    await expect(page.locator('#mobile-controls')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reveal' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Flag' })).toBeVisible();
+
+    const moveStick = page.locator('#mobile-stick');
+    const stickBox = await moveStick.boundingBox();
+    expect(stickBox).not.toBeNull();
+    const positionBeforeJoystick = await page.evaluate(() => window.__minesweeperDebug?.cameraPosition());
+
+    if (stickBox) {
+      const centerX = stickBox.x + stickBox.width / 2;
+      const centerY = stickBox.y + stickBox.height / 2;
+      await page.touchscreen.tap(centerX, centerY - stickBox.height * 0.28);
+      await page.mouse.move(centerX, centerY);
+      await page.mouse.down();
+      await page.mouse.move(centerX, centerY - stickBox.height * 0.34);
+      await page.waitForTimeout(180);
+      await page.mouse.up();
+    }
+
+    const positionAfterJoystick = await page.evaluate(() => window.__minesweeperDebug?.cameraPosition());
+    expect(
+      Math.hypot(
+        (positionAfterJoystick?.x ?? 0) - (positionBeforeJoystick?.x ?? 0),
+        (positionAfterJoystick?.z ?? 0) - (positionBeforeJoystick?.z ?? 0),
+      ),
+    ).toBeGreaterThan(0.05);
+
     const before = await page.evaluate(() => window.__minesweeperDebug?.progress().revealedSafeCount ?? 0);
 
     await page.evaluate(() => window.__minesweeperDebug?.moveToTile(2, 3));

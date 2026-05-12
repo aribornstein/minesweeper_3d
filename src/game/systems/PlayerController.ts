@@ -7,6 +7,7 @@ const DEFAULT_YAW = 0;
 
 export class PlayerController {
   private readonly keys = new Set<string>();
+  private readonly touchMovement = new THREE.Vector2();
   private pitch = DEFAULT_PITCH;
   private yaw = DEFAULT_YAW;
   private movementEnabled = false;
@@ -61,10 +62,30 @@ export class PlayerController {
   deactivate(): void {
     this.movementEnabled = false;
     this.keys.clear();
+    this.setTouchMovement(0, 0);
 
     if (document.pointerLockElement === this.canvas) {
       document.exitPointerLock();
     }
+  }
+
+  setTouchMovement(x: number, z: number): void {
+    this.touchMovement.set(x, z);
+
+    if (this.touchMovement.lengthSq() > 1) {
+      this.touchMovement.normalize();
+    }
+  }
+
+  lookBy(movementX: number, movementY: number): void {
+    if (!this.movementEnabled) {
+      return;
+    }
+
+    this.yaw -= movementX * MOUSE_SENSITIVITY;
+    this.pitch -= movementY * MOUSE_SENSITIVITY;
+    this.pitch = THREE.MathUtils.clamp(this.pitch, -1.1, 1.1);
+    this.updateCameraRotation();
   }
 
   update(delta: number): void {
@@ -84,6 +105,8 @@ export class PlayerController {
     if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) movement.sub(forward);
     if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) movement.add(right);
     if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) movement.sub(right);
+    if (this.touchMovement.y !== 0) movement.addScaledVector(forward, this.touchMovement.y);
+    if (this.touchMovement.x !== 0) movement.addScaledVector(right, this.touchMovement.x);
 
     if (movement.lengthSq() > 0) {
       movement.normalize().multiplyScalar(WALK_SPEED * delta);
@@ -125,10 +148,7 @@ export class PlayerController {
       return;
     }
 
-    this.yaw -= event.movementX * MOUSE_SENSITIVITY;
-    this.pitch -= event.movementY * MOUSE_SENSITIVITY;
-    this.pitch = THREE.MathUtils.clamp(this.pitch, -1.1, 1.1);
-    this.updateCameraRotation();
+    this.lookBy(event.movementX, event.movementY);
   };
 
   private onPointerLockChange = (): void => {

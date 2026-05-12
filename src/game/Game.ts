@@ -11,6 +11,7 @@ import { createLevelEnvironment, createScene, disposeLevelEnvironment, type Leve
 import { TileGrid } from './world/TileGrid';
 import { ViewModel } from './world/ViewModel';
 import { Hud } from '../ui/Hud';
+import { MobileControls } from '../ui/MobileControls';
 
 declare global {
   interface Window {
@@ -84,6 +85,7 @@ export class Game {
   private alarmLight!: THREE.PointLight;
   private readonly tileGrid: TileGrid;
   private readonly player: PlayerController;
+  private readonly mobileControls: MobileControls;
   private readonly viewModel = new ViewModel();
   private readonly transitionVeil = createTransitionVeil();
   private readonly effects: Effects;
@@ -123,6 +125,13 @@ export class Game {
     this.effects = new Effects(this.scene);
 
     this.player = new PlayerController(this.camera, canvas, this.currentLevel);
+    this.mobileControls = new MobileControls({
+      onMove: (x, z) => this.player.setTouchMovement(x, z),
+      onLook: (movementX, movementY) => this.player.lookBy(movementX, movementY),
+      onReveal: () => this.onReveal(),
+      onFlag: () => this.onFlag(),
+      onReset: () => this.reset(),
+    });
     this.bindEvents();
     this.hud.setLevel(this.currentLevel);
     this.syncHud();
@@ -203,6 +212,11 @@ export class Game {
   }
 
   private onPointerDown = (event: PointerEvent): void => {
+    if (event.pointerType === 'touch') {
+      event.preventDefault();
+      return;
+    }
+
     if ((this.phase === 'playing' || this.phase === 'solved') && !this.levelTransition && !this.player.hasPointerLock && this.player.canRequestPointerLock) {
       this.player.lock();
 
@@ -492,6 +506,7 @@ export class Game {
   }
 
   private syncHud(): void {
+    this.mobileControls.setPhase(this.phase);
     this.hud.setPhase(this.phase);
     this.hud.setProgress(this.board.progress());
     this.hud.setScannerTile(
