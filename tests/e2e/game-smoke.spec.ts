@@ -32,6 +32,7 @@ declare global {
       activeExplosions: () => number;
       triggeredExplosions: () => number;
       cameraPosition: () => { x: number; y: number; z: number };
+      moveToTile: (tileX: number, tileZ: number) => { x: number; y: number; z: number };
       exitSignal: () => { glow: string; status: string };
       level: () => DebugLevel;
     };
@@ -151,6 +152,24 @@ test('supports arrow-key movement alongside WASD', async ({ page }) => {
   const after = await page.evaluate(() => window.__minesweeperDebug?.cameraPosition());
 
   expect(Math.hypot((after?.x ?? 0) - (before?.x ?? 0), (after?.z ?? 0) - (before?.z ?? 0))).toBeGreaterThan(0.05);
+});
+
+test.describe('mobile step activation', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  test('activates a safe tile by walking over it', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(() => Boolean(window.__minesweeperDebug));
+
+    await page.evaluate(() => window.__minesweeperDebug?.reset());
+    const before = await page.evaluate(() => window.__minesweeperDebug?.progress().revealedSafeCount ?? 0);
+
+    await page.evaluate(() => window.__minesweeperDebug?.moveToTile(2, 3));
+
+    await expect
+      .poll(async () => page.evaluate(() => window.__minesweeperDebug?.progress().revealedSafeCount ?? 0))
+      .toBeGreaterThan(before);
+  });
 });
 
 async function expectRenderedPixels(page: Page): Promise<void> {

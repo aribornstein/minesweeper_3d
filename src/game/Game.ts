@@ -25,6 +25,7 @@ declare global {
       activeExplosions: () => number;
       triggeredExplosions: () => number;
       cameraPosition: () => { x: number; y: number; z: number };
+      moveToTile: (tileX: number, tileZ: number) => { x: number; y: number; z: number };
       exitSignal: () => { glow: string; status: string };
       level: () => { levelNumber: number; name: string; sector: string; chamber: string; width: number; depth: number; mineCount: number; mineDensity: number };
       enterExit: () => GamePhase;
@@ -43,6 +44,8 @@ const TRANSITION_FADE_OUT_END = 1.86;
 const EXIT_PANEL_CLOSED_Y = 1.23;
 const EXIT_PANEL_OPEN_Y = 4.15;
 const FLAG_THROW_DURATION = 0.46;
+const STEP_ACTIVATION_COOLDOWN = 0.42;
+const STEP_ACTIVATION_TILE_RADIUS = TILE_SIZE * 0.42;
 
 type LevelTransition = {
   elapsed: number;
@@ -90,6 +93,9 @@ export class Game {
   private hoveredTile: TileState | undefined;
   private levelTransition: LevelTransition | undefined;
   private shakeRemaining = 0;
+  private stepActivationCooldown = 0;
+  private stepActivationTileKey: string | undefined;
+  private readonly stepActivationEnabled = window.matchMedia('(pointer: coarse)').matches;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
@@ -146,6 +152,7 @@ export class Game {
     const delta = Math.min(this.clock.getDelta(), 0.05);
     if (!this.levelTransition && this.phase !== 'failed' && this.phase !== 'escaped') {
       this.player.update(delta);
+      this.updateStepActivation(delta);
     }
     this.updateLevelTransition(delta);
     if (this.levelTransition) {
@@ -233,6 +240,60 @@ export class Game {
     this.applyRevealResult(result, this.hoveredTile);
   };
 
+  private activateTile(tile: TileState): void {
+    if (this.phase !== 'playing') {
+      return;
+    }
+
+    const result = tile.revealed ? this.board.revealAdjacent(tile) : this.board.reveal(tile);
+    this.applyRevealResult(result, tile);
+  }
+
+  private updateStepActivation(delta: number): void {
+    this.stepActivationCooldown = Math.max(0, this.stepActivationCooldown - delta);
+
+    if (!this.stepActivationEnabled || this.phase !== 'playing') {
+      return;
+    }
+
+    const tile = this.tileUnderPlayer();
+    const tileKey = tile ? key(tile) : undefined;
+
+    if (!tile || !tileKey) {
+      this.stepActivationTileKey = undefined;
+      return;
+    }
+
+    if (tileKey === this.stepActivationTileKey || this.stepActivationCooldown > 0 || tile.flagged) {
+      return;
+    }
+
+    if (!tile.revealed || tile.adjacentMines > 0) {
+      this.stepActivationTileKey = tileKey;
+      this.stepActivationCooldown = STEP_ACTIVATION_COOLDOWN;
+      this.activateTile(tile);
+    }
+  }
+
+  private tileUnderPlayer(): TileState | undefined {
+    const coord = {
+      x: Math.round(this.camera.position.x / TILE_SIZE + (this.currentLevel.width - 1) / 2),
+      z: Math.round(this.camera.position.z / TILE_SIZE + (this.currentLevel.depth - 1) / 2),
+    };
+    const tile = this.board.getTile(coord);
+
+    if (!tile) {
+      return undefined;
+    }
+
+    const center = this.tileGrid.tileWorldPosition(tile);
+    const insideTileCenter =
+      Math.abs(this.camera.position.x - center.x) <= STEP_ACTIVATION_TILE_RADIUS &&
+      Math.abs(this.camera.position.z - center.z) <= STEP_ACTIVATION_TILE_RADIUS;
+
+    return insideTileCenter ? tile : undefined;
+  }
+
   private onFlag = (): void => {
     if (this.phase !== 'playing' || !this.hoveredTile) {
       return;
@@ -270,6 +331,8 @@ export class Game {
 
   private reset(): void {
     this.levelTransition = undefined;
+    this.stepActivationCooldown = 0;
+    this.stepActivationTileKey = undefined;
     this.setTransitionVeilOpacity(0);
     this.clearFlagThrows();
     this.phase = 'playing';
@@ -485,6 +548,11 @@ export class Game {
       activeExplosions: () => this.effects.activeBlastCount,
       triggeredExplosions: () => this.effects.totalTriggeredBlastCount,
       cameraPosition: () => ({ x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z }),
+      moveToTile: (tileX: number, tileZ: number) => {
+        const tilePosition = this.tileGrid.tileWorldPosition({ x: tileX, z: tileZ });
+        this.camera.position.set(tilePosition.x, PLAYER_HEIGHT, tilePosition.z);
+        return { x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z };
+      },
       exitSignal: () => ({
         glow: `#${this.exitGlow.color.getHexString()}`,
         status: this.exitStatusLight?.material instanceof THREE.MeshStandardMaterial ? `#${this.exitStatusLight.material.emissive.getHexString()}` : '#000000',
@@ -521,6 +589,8 @@ export class Game {
     this.setTransitionVeilOpacity(0);
     this.player.deactivate();
     this.hoveredTile = undefined;
+    this.stepActivationCooldown = 0;
+    this.stepActivationTileKey = undefined;
     this.tileGrid.setHover(undefined);
     this.levelTransition = {
       elapsed: 0,
@@ -611,6 +681,8 @@ export class Game {
     this.currentLevel = level;
     this.phase = phase;
     this.hoveredTile = undefined;
+    this.stepActivationCooldown = 0;
+    this.stepActivationTileKey = undefined;
     this.shakeRemaining = 0;
     this.board.loadLevel(level);
     this.tileGrid.rebuild(this.board.allTiles, level);
@@ -673,6 +745,10 @@ export class Game {
 function smoothstep(value: number): number {
   const clamped = THREE.MathUtils.clamp(value, 0, 1);
   return clamped * clamped * (3 - 2 * clamped);
+}
+
+function key(coord: TileCoord): string {
+  return `${coord.x}:${coord.z}`;
 }
 
 function createTransitionVeil(): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
