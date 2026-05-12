@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="First-Person Minesweeper icon">
+  <rect width="512" height="512" rx="96" fill="#050709"/>
+  <path d="M84 392h344v36H84z" fill="#26343a"/>
+  <path d="M128 124h256v232H128z" fill="#10191d" stroke="#48cdf4" stroke-width="12"/>
+  <path d="M160 156h192v34H160zm0 58h192v20H160zm0 42h138v20H160z" fill="#8feaff" opacity="0.72"/>
+  <rect x="164" y="300" width="74" height="74" rx="10" fill="#d5d0c4" stroke="#ffffff" stroke-width="8"/>
+  <path d="M286 300h70v74h-70z" fill="#6f6a60" stroke="#8a8478" stroke-width="8"/>
+  <path d="M318 316v46" stroke="#d62020" stroke-width="9" stroke-linecap="round"/>
+  <path d="M322 316l38 14-38 14z" fill="#ff533d"/>
+  <path d="M252 84l38 78h86l-70 52 28 84-82-52-82 52 28-84-70-52h86z" fill="#f2c33e" opacity="0.9"/>
+</svg>

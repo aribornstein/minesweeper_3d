@@ -1,0 +1,26 @@
+{
+  "name": "First-Person Minesweeper",
+  "short_name": "Minesweeper 3D",
+  "description": "A first-person Minesweeper puzzle-thriller prototype built with Three.js.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape-primary",
+  "background_color": "#050709",
+  "theme_color": "#050709",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-maskable-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

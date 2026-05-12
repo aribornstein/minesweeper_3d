@@ -9,3 +9,9 @@ if (!canvas) {
 
 const game = new Game(canvas);
 game.start();
+
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/service-worker.js');
+  });
+}
