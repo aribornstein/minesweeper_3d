@@ -142,8 +142,8 @@ export class Game {
     this.composer.addPass(renderPass);
     if (this.quality.enableGtao) {
       this.gtaoPass = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
-      this.gtaoPass.updateGtaoMaterial({ radius: 0.34, distanceExponent: 1.6, thickness: 0.22, scale: 1.0, samples: 16, distanceFallOff: 1.0 });
-      this.gtaoPass.blendIntensity = 0.6;
+      this.gtaoPass.updateGtaoMaterial({ radius: 0.42, distanceExponent: 1.78, thickness: 0.34, scale: 1.08, samples: 20, distanceFallOff: 0.92 });
+      this.gtaoPass.blendIntensity = 0.72;
       this.composer.addPass(this.gtaoPass);
     }
     if (this.quality.enableBloom) {

@@ -11,6 +11,8 @@ type TileVisual = {
   rimMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   tileMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   insetMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  contactShadow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  seamMeshes: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>[];
   edgeLights: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
   routeGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   hoverGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -26,6 +28,9 @@ export class TileGrid {
   private readonly panelRoughnessTexture = createTileRoughnessTexture();
   private readonly panelNormalTexture = createTileNormalTexture();
   private readonly panelAoTexture = createTileAoTexture();
+  private readonly contactShadowTexture = createContactShadowTexture();
+  private readonly seamGeometry = createTileSeamGeometry();
+  private readonly seamMaterial = new THREE.MeshStandardMaterial({ color: '#060a0b', roughness: 0.92, metalness: 0.12, envMapIntensity: 0.08 });
   private readonly glowTexture = createSoftGlowTexture();
   private readonly suppressedFlagMarkers = new Set<string>();
   private hoverKey: string | undefined;
@@ -64,6 +69,7 @@ export class TileGrid {
     visual.rimMesh.material.color.set(tile.revealed ? '#0f1718' : '#11191a');
     visual.tileMesh.position.y = tile.revealed ? 0 : 0.07;
     visual.insetMesh.position.y = tile.revealed ? 0.16 : 0.24;
+    visual.contactShadow.material.opacity = tile.revealed ? 0.2 : 0.27;
     visual.routeGlow.visible = this.routeVisible && tile.isRouteHint && !tile.hasMine;
     visual.hoverGlow.visible = false;
     visual.hoverGlow.material.opacity = 0;
@@ -168,6 +174,8 @@ export class TileGrid {
       visual.tileMesh.material.dispose();
       visual.rimMesh.geometry.dispose();
       visual.rimMesh.material.dispose();
+      visual.contactShadow.geometry.dispose();
+      visual.contactShadow.material.dispose();
       visual.edgeLights.forEach((edgeLight) => {
         edgeLight.geometry.dispose();
         edgeLight.material.dispose();
@@ -240,6 +248,8 @@ export class TileGrid {
           blending: THREE.AdditiveBlending,
         }),
       );
+      const contactShadow = this.createTileContactShadow();
+      const seamMeshes = this.createTileSeams();
 
       rim.castShadow = true;
       rim.receiveShadow = true;
@@ -259,16 +269,18 @@ export class TileGrid {
       hoverGlow.rotation.x = -Math.PI / 2;
       hoverGlow.position.y = 0.31;
       hoverGlow.visible = false;
+      contactShadow.rotation.x = -Math.PI / 2;
+      contactShadow.position.y = -0.055;
       const edgeLights = this.createTileEdgeLights();
       root.position.copy(this.tileWorldPosition(tile));
       // Micro jitter so adjacent plates don't read as a stamped grid.
       const jitterSeed = pseudoRandom(tile.x * 73 + tile.z * 131, this.level.levelNumber * 19);
       root.rotation.y = (jitterSeed - 0.5) * 0.018;
       root.position.y += (pseudoRandom(tile.x * 17 + tile.z * 41, this.level.levelNumber * 7) - 0.5) * 0.006;
-      root.add(rim, mesh, inset, routeGlow, hoverGlow, ...edgeLights);
+      root.add(contactShadow, ...seamMeshes, rim, mesh, inset, routeGlow, hoverGlow, ...edgeLights);
       this.group.add(root);
       this.interactiveMeshes.push(mesh);
-      this.visuals.set(this.key(tile), { root, rimMesh: rim, tileMesh: mesh, insetMesh: inset, edgeLights, routeGlow, hoverGlow });
+      this.visuals.set(this.key(tile), { root, rimMesh: rim, tileMesh: mesh, insetMesh: inset, contactShadow, seamMeshes, edgeLights, routeGlow, hoverGlow });
       this.updateTile(tile);
     });
   }
@@ -279,13 +291,34 @@ export class TileGrid {
       map: this.panelDetailTexture,
       roughnessMap: this.panelRoughnessTexture,
       normalMap: this.panelNormalTexture,
-      normalScale: new THREE.Vector2(0.085, 0.085),
+      normalScale: new THREE.Vector2(0.105, 0.105),
       aoMap: this.panelAoTexture,
-      aoMapIntensity: 0.65,
+      aoMapIntensity: 0.78,
       roughness,
       metalness,
-      envMapIntensity: 0.28,
+      envMapIntensity: 0.34,
     });
+  }
+
+  private createTileContactShadow(): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
+    return new THREE.Mesh(
+      new THREE.PlaneGeometry(TILE_SIZE - 0.02, TILE_SIZE - 0.02),
+      new THREE.MeshBasicMaterial({
+        map: this.contactShadowTexture,
+        color: '#000000',
+        transparent: true,
+        opacity: 0.27,
+        depthWrite: false,
+      }),
+    );
+  }
+
+  private createTileSeams(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>[] {
+    const seam = new THREE.Mesh(this.seamGeometry, this.seamMaterial);
+    seam.rotation.x = -Math.PI / 2;
+    seam.position.y = -0.034;
+    seam.receiveShadow = true;
+    return [seam];
   }
 
   private routeAccentColor(): THREE.Color {
@@ -474,9 +507,45 @@ function createTileDetailTexture(): THREE.CanvasTexture {
   context.strokeStyle = 'rgba(0, 0, 0, 0.1)';
   context.lineWidth = 3;
   context.strokeRect(22, 22, size - 44, size - 44);
+  context.strokeStyle = 'rgba(0, 0, 0, 0.18)';
+  context.lineWidth = 8;
+  context.strokeRect(12, 12, size - 24, size - 24);
   context.strokeStyle = 'rgba(255, 255, 255, 0.16)';
   context.lineWidth = 2;
   context.strokeRect(34, 34, size - 68, size - 68);
+  context.strokeStyle = 'rgba(255, 255, 255, 0.24)';
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(20, 18);
+  context.lineTo(size - 24, 18);
+  context.moveTo(18, 20);
+  context.lineTo(18, size - 24);
+  context.stroke();
+
+  for (let wearIndex = 0; wearIndex < 42; wearIndex += 1) {
+    const side = Math.floor(pseudoRandom(wearIndex, 29) * 4);
+    const position = 28 + pseudoRandom(wearIndex, 31) * (size - 56);
+    const length = 6 + pseudoRandom(wearIndex, 37) * 34;
+    context.save();
+    context.strokeStyle = pseudoRandom(wearIndex, 41) > 0.38 ? 'rgba(255, 255, 255, 0.16)' : 'rgba(0, 0, 0, 0.16)';
+    context.lineWidth = 1 + pseudoRandom(wearIndex, 43) * 1.5;
+    context.beginPath();
+    if (side === 0) {
+      context.moveTo(position, 17);
+      context.lineTo(Math.min(size - 22, position + length), 17);
+    } else if (side === 1) {
+      context.moveTo(position, size - 17);
+      context.lineTo(Math.min(size - 22, position + length), size - 17);
+    } else if (side === 2) {
+      context.moveTo(17, position);
+      context.lineTo(17, Math.min(size - 22, position + length));
+    } else {
+      context.moveTo(size - 17, position);
+      context.lineTo(size - 17, Math.min(size - 22, position + length));
+    }
+    context.stroke();
+    context.restore();
+  }
 
   for (let scratchIndex = 0; scratchIndex < 95; scratchIndex += 1) {
     const x = pseudoRandom(scratchIndex, 1) * size;
@@ -512,7 +581,11 @@ function createTileRoughnessTexture(): THREE.CanvasTexture {
   const image = context.createImageData(size, size);
   for (let index = 0; index < image.data.length; index += 4) {
     const pixel = index / 4;
-    const value = THREE.MathUtils.clamp(170 + Math.floor((pseudoRandom(pixel, 12) - 0.5) * 82), 92, 230);
+    const x = pixel % size;
+    const y = Math.floor(pixel / size);
+    const edgeDistance = Math.min(x, y, size - 1 - x, size - 1 - y);
+    const edgePolish = edgeDistance < 18 ? -34 * (1 - edgeDistance / 18) : 0;
+    const value = THREE.MathUtils.clamp(170 + edgePolish + Math.floor((pseudoRandom(pixel, 12) - 0.5) * 92), 78, 238);
     image.data[index] = value;
     image.data[index + 1] = value;
     image.data[index + 2] = value;
@@ -543,9 +616,27 @@ function createTileNormalTexture(): THREE.CanvasTexture {
   context.strokeStyle = 'rgb(112, 126, 255)';
   context.lineWidth = 5;
   context.strokeRect(24, 24, size - 48, size - 48);
+  context.strokeStyle = 'rgb(102, 122, 255)';
+  context.lineWidth = 9;
+  context.strokeRect(12, 12, size - 24, size - 24);
   context.strokeStyle = 'rgb(144, 134, 255)';
   context.lineWidth = 2;
   context.strokeRect(42, 42, size - 84, size - 84);
+  context.strokeStyle = 'rgba(155, 137, 255, 0.42)';
+  context.lineWidth = 1;
+  for (let scratchIndex = 0; scratchIndex < 36; scratchIndex += 1) {
+    const x = pseudoRandom(scratchIndex, 71) * size;
+    const y = pseudoRandom(scratchIndex, 73) * size;
+    const length = 12 + pseudoRandom(scratchIndex, 79) * 44;
+    context.save();
+    context.translate(x, y);
+    context.rotate((pseudoRandom(scratchIndex, 83) - 0.5) * 1.2);
+    context.beginPath();
+    context.moveTo(-length * 0.5, 0);
+    context.lineTo(length * 0.5, 0);
+    context.stroke();
+    context.restore();
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.NoColorSpace;
@@ -577,12 +668,63 @@ function createTileAoTexture(): THREE.CanvasTexture {
   context.strokeStyle = 'rgba(24, 24, 24, 0.24)';
   context.lineWidth = 7;
   context.strokeRect(22, 22, size - 44, size - 44);
+  context.strokeStyle = 'rgba(6, 6, 6, 0.42)';
+  context.lineWidth = 13;
+  context.strokeRect(8, 8, size - 16, size - 16);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.anisotropy = TEXTURE_ANISOTROPY;
   return texture;
+}
+
+function createContactShadowTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Could not create contact shadow texture.');
+  }
+
+  const gradient = context.createRadialGradient(size / 2, size / 2, size * 0.22, size / 2, size / 2, size * 0.58);
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 0.38)');
+  gradient.addColorStop(0.64, 'rgba(0, 0, 0, 0.2)');
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, size, size);
+  context.strokeStyle = 'rgba(0, 0, 0, 0.34)';
+  context.lineWidth = 10;
+  context.strokeRect(16, 16, size - 32, size - 32);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  return texture;
+}
+
+function createTileSeamGeometry(): THREE.ShapeGeometry {
+  const outer = TILE_SIZE - 0.02;
+  const inner = TILE_SIZE - TILE_GAP + 0.1;
+  const shape = new THREE.Shape();
+  shape.moveTo(-outer / 2, -outer / 2);
+  shape.lineTo(outer / 2, -outer / 2);
+  shape.lineTo(outer / 2, outer / 2);
+  shape.lineTo(-outer / 2, outer / 2);
+  shape.lineTo(-outer / 2, -outer / 2);
+
+  const hole = new THREE.Path();
+  hole.moveTo(-inner / 2, -inner / 2);
+  hole.lineTo(-inner / 2, inner / 2);
+  hole.lineTo(inner / 2, inner / 2);
+  hole.lineTo(inner / 2, -inner / 2);
+  hole.lineTo(-inner / 2, -inner / 2);
+  shape.holes.push(hole);
+
+  return new THREE.ShapeGeometry(shape);
 }
 
 function createSoftGlowTexture(): THREE.CanvasTexture {

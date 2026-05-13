@@ -56,7 +56,7 @@ export function createScene(level: LevelDefinition, quality: QualitySettings = D
   keyLight.shadow.camera.top = 20;
   keyLight.shadow.camera.bottom = -18;
   keyLight.shadow.bias = -0.00008;
-  keyLight.shadow.normalBias = 0.035;
+  keyLight.shadow.normalBias = 0.018;
   scene.add(keyLight);
 
   const rimLight = new THREE.DirectionalLight(level.chamber.sideLight, 0.28 + level.chamber.bloom * 0.22);
@@ -70,6 +70,7 @@ export function createScene(level: LevelDefinition, quality: QualitySettings = D
   boardSpot.castShadow = quality.enableShadows;
   boardSpot.shadow.mapSize.set(Math.min(1024, quality.shadowMapSize), Math.min(1024, quality.shadowMapSize));
   boardSpot.shadow.bias = -0.00012;
+  boardSpot.shadow.normalBias = 0.012;
   scene.add(boardSpot, boardSpot.target);
 
   // Three path SpotLights pooling light across the playable cells: gives the bright center / dark corners feel.
@@ -254,6 +255,7 @@ function collectMaterialTextures(material: THREE.Material, textures: Set<THREE.T
 
 function addFloorRails(target: THREE.Object3D, level: LevelDefinition): void {
   const railMaterial = createIndustrialMaterial(level.chamber.coolTrim, 0.48, 0.62, 'metal', 1.4, 7);
+  const catchMaterial = createEdgeCatchMaterial(level.chamber.light, 0.28);
   const railDepth = level.depth * TILE_SIZE + 3.8;
   const railWidth = level.width * TILE_SIZE + 3.6;
 
@@ -262,7 +264,9 @@ function addFloorRails(target: THREE.Object3D, level: LevelDefinition): void {
     rail.position.set(side * railWidth / 2, 0.05, 0);
     rail.castShadow = true;
     rail.receiveShadow = true;
-    target.add(rail);
+    const catchLine = new THREE.Mesh(new RoundedBoxGeometry(0.026, 0.018, railDepth * 0.94, 1, 0.006), catchMaterial.clone());
+    catchLine.position.set(side * (railWidth / 2 - 0.045), 0.155, 0);
+    target.add(rail, catchLine);
 
     const cable = new THREE.Mesh(
       new THREE.CylinderGeometry(0.024, 0.024, railDepth, 12),
@@ -877,7 +881,7 @@ function addCeilingPanels(target: THREE.Object3D, level: LevelDefinition, qualit
 
   // Longitudinal structural beams: concept 1 has visible beams running toward the vanishing point.
   const beamMaterial = createIndustrialMaterial(level.chamber.coolTrim, 0.5, 0.58, 'metal', 1.4, 2.4);
-  const beamCount = 3;
+  const beamCount: number = 3;
   for (let beamIndex = 0; beamIndex < beamCount; beamIndex += 1) {
     const x = beamCount === 1 ? 0 : (beamIndex / (beamCount - 1) - 0.5) * (width - 1.4);
     const beam = new THREE.Mesh(new RoundedBoxGeometry(0.16, 0.18, depth - 0.4, 2, 0.028), beamMaterial);
@@ -1043,6 +1047,13 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
     ...createSplitBackBand(width * 0.68, 0.028, 0.03, 0.76, backZ + 0.12, lineMaterial, exitOpeningX, exitOpeningWidth),
   );
   target.add(...bandMeshes);
+  const catchMaterial = createEdgeCatchMaterial(level.chamber.light, 0.22);
+  const backCatchLines = [
+    ...createSplitBackBand(width * 0.72, 0.016, 0.022, 0.63, backZ + 0.15, catchMaterial, exitOpeningX, exitOpeningWidth),
+    ...createSplitBackBand(width - 0.92, 0.018, 0.024, 3.37, backZ + 0.14, catchMaterial, exitOpeningX, exitOpeningWidth),
+  ];
+  target.add(...backCatchLines);
+  bandMeshes.push(...backCatchLines);
 
   [-1, 1].forEach((side) => {
     const x = side * (width / 2 - 0.22);
@@ -1051,14 +1062,18 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
     const amberLine = new THREE.Mesh(new RoundedBoxGeometry(0.052, 0.045, depth * 0.72, 1, 0.01), amberAccentMaterial);
     const upperGlow = new THREE.Mesh(new RoundedBoxGeometry(0.026, 0.036, depth * 0.72, 1, 0.008), lineMaterial.clone());
     const lowerGlow = new THREE.Mesh(new RoundedBoxGeometry(0.024, 0.028, depth * 0.68, 1, 0.008), lineMaterial.clone());
+    const upperCatch = new THREE.Mesh(new RoundedBoxGeometry(0.018, 0.016, depth * 0.66, 1, 0.006), catchMaterial.clone());
+    const lowerCatch = new THREE.Mesh(new RoundedBoxGeometry(0.018, 0.014, depth * 0.64, 1, 0.006), catchMaterial.clone());
 
     upperRail.position.set(x, 3.28, 0);
     lowerRail.position.set(x, 0.35, 0);
     amberLine.position.set(x - side * 0.055, 0.55, 0);
     upperGlow.position.set(x - side * 0.078, 2.98, 0);
     lowerGlow.position.set(x - side * 0.078, 0.74, 0);
-    target.add(upperRail, lowerRail, amberLine, upperGlow, lowerGlow);
-    bandMeshes.push(upperRail, lowerRail, amberLine, upperGlow, lowerGlow);
+    upperCatch.position.set(x - side * 0.115, 3.36, 0);
+    lowerCatch.position.set(x - side * 0.115, 0.44, 0);
+    target.add(upperRail, lowerRail, amberLine, upperGlow, lowerGlow, upperCatch, lowerCatch);
+    bandMeshes.push(upperRail, lowerRail, amberLine, upperGlow, lowerGlow, upperCatch, lowerCatch);
   });
 
   bandMeshes.forEach((mesh) => {
@@ -2106,7 +2121,7 @@ function createIndustrialMaterial(
 ): THREE.MeshStandardMaterial {
   const normalStrength = kind === 'floor' ? 0.072 : kind === 'wall' || kind === 'dark-panel' ? 0.052 : 0.082;
   const envMapIntensity = kind === 'metal' || kind === 'trim' ? 0.68 : kind === 'door' ? 0.38 : kind === 'floor' ? 0.92 : 0.22;
-  const aoIntensity = kind === 'floor' ? 0.28 : kind === 'wall' || kind === 'dark-panel' ? 0.34 : 0.24;
+  const aoIntensity = kind === 'floor' ? 0.4 : kind === 'wall' || kind === 'dark-panel' ? 0.46 : kind === 'door' ? 0.42 : 0.3;
 
   return new THREE.MeshStandardMaterial({
     map: createSurfaceTexture(color, kind, repeatX, repeatY),
@@ -2121,6 +2136,17 @@ function createIndustrialMaterial(
     roughness,
     metalness,
     envMapIntensity,
+  });
+}
+
+function createEdgeCatchMaterial(color: THREE.Color | string, intensity = 0.24): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: color instanceof THREE.Color ? color.clone().lerp(new THREE.Color('#ffffff'), 0.42) : color,
+    roughness: 0.32,
+    metalness: 0.5,
+    envMapIntensity: 0.96,
+    emissive: color,
+    emissiveIntensity: intensity,
   });
 }
 
@@ -2233,6 +2259,44 @@ function createSurfaceTexture(color: THREE.Color | string, kind: SurfaceKind, re
     context.stroke();
   }
 
+  context.strokeStyle = kind === 'floor' || kind === 'door' ? 'rgba(0, 0, 0, 0.18)' : 'rgba(0, 0, 0, 0.12)';
+  context.lineWidth = kind === 'floor' ? 10 : 6;
+  context.strokeRect(18, 18, size - 36, size - 36);
+  context.strokeStyle = kind === 'trim' || kind === 'metal' ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.08)';
+  context.lineWidth = 2;
+  context.beginPath();
+  context.moveTo(26, 24);
+  context.lineTo(size - 30, 24);
+  context.moveTo(24, 26);
+  context.lineTo(24, size - 30);
+  context.stroke();
+
+  const wearCount = kind === 'wall' || kind === 'dark-panel' ? 28 : kind === 'floor' ? 56 : 44;
+  for (let wearIndex = 0; wearIndex < wearCount; wearIndex += 1) {
+    const edge = Math.floor(pseudoRandom(wearIndex, kind.length * 97) * 4);
+    const position = 36 + pseudoRandom(wearIndex, kind.length * 101) * (size - 72);
+    const length = 10 + pseudoRandom(wearIndex, kind.length * 103) * 58;
+    context.save();
+    context.strokeStyle = pseudoRandom(wearIndex, kind.length * 107) > 0.45 ? 'rgba(255, 255, 255, 0.11)' : 'rgba(0, 0, 0, 0.14)';
+    context.lineWidth = 1 + pseudoRandom(wearIndex, kind.length * 109) * 2;
+    context.beginPath();
+    if (edge === 0) {
+      context.moveTo(position, 23);
+      context.lineTo(Math.min(size - 32, position + length), 23);
+    } else if (edge === 1) {
+      context.moveTo(position, size - 23);
+      context.lineTo(Math.min(size - 32, position + length), size - 23);
+    } else if (edge === 2) {
+      context.moveTo(23, position);
+      context.lineTo(23, Math.min(size - 32, position + length));
+    } else {
+      context.moveTo(size - 23, position);
+      context.lineTo(size - 23, Math.min(size - 32, position + length));
+    }
+    context.stroke();
+    context.restore();
+  }
+
   const scratchCount = kind === 'wall' || kind === 'dark-panel' ? 12 : kind === 'floor' ? 48 : 92;
   for (let scratchIndex = 0; scratchIndex < scratchCount; scratchIndex += 1) {
     const random = pseudoRandom(scratchIndex, kind.length * 19);
@@ -2302,7 +2366,11 @@ function createRoughnessTexture(kind: SurfaceKind, repeatX: number, repeatY: num
   for (let index = 0; index < image.data.length; index += 4) {
     const pixel = index / 4;
     const variation = Math.floor((pseudoRandom(pixel, kind.length * 23) - 0.5) * 58);
-    const value = THREE.MathUtils.clamp(base + variation, 84, 235);
+    const x = pixel % size;
+    const y = Math.floor(pixel / size);
+    const edgeDistance = Math.min(x, y, size - 1 - x, size - 1 - y);
+    const edgePolish = edgeDistance < 22 ? -30 * (1 - edgeDistance / 22) : 0;
+    const value = THREE.MathUtils.clamp(base + edgePolish + variation, 70, 235);
     image.data[index] = value;
     image.data[index + 1] = value;
     image.data[index + 2] = value;
@@ -2335,7 +2403,7 @@ function createAoTexture(kind: SurfaceKind, repeatX: number, repeatY: number): T
   const edgeGradient = context.createRadialGradient(size / 2, size / 2, size * 0.2, size / 2, size / 2, size * 0.72);
   edgeGradient.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
   edgeGradient.addColorStop(0.58, 'rgba(170, 170, 170, 0.08)');
-  edgeGradient.addColorStop(1, 'rgba(54, 54, 54, 0.32)');
+  edgeGradient.addColorStop(1, 'rgba(38, 38, 38, 0.42)');
   context.fillStyle = edgeGradient;
   context.fillRect(0, 0, size, size);
 
@@ -2350,6 +2418,9 @@ function createAoTexture(kind: SurfaceKind, repeatX: number, repeatY: number): T
     context.lineTo(size, position);
     context.stroke();
   }
+  context.strokeStyle = kind === 'floor' || kind === 'door' ? 'rgba(8, 8, 8, 0.36)' : 'rgba(8, 8, 8, 0.24)';
+  context.lineWidth = kind === 'floor' ? 13 : 9;
+  context.strokeRect(14, 14, size - 28, size - 28);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.wrapS = THREE.RepeatWrapping;
