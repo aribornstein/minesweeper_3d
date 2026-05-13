@@ -108,6 +108,9 @@ export class Game {
   private readonly transitionVeil = createTransitionVeil();
   private readonly effects: Effects;
   private readonly flagThrows: FlagThrow[] = [];
+  private droppedFlag: THREE.Group | undefined;
+  private droppedFlagState: { velocity: THREE.Vector3; angular: THREE.Vector3; settled: boolean } | undefined;
+  private deathAnim: { elapsed: number; startY: number; startPitch: number; startRoll: number; targetYaw: number; startYaw: number } | undefined;
   private readonly reticle = new THREE.Vector2(0, 0);
   private phase: GamePhase = 'ready';
   private hoveredTile: TileState | undefined;
@@ -241,6 +244,7 @@ export class Game {
     );
     this.animateExit(delta);
     this.updateCameraShake(delta);
+    this.updateDeathAnimation(delta);
     this.flushPendingMineReveals();
     this.updateAdaptiveResolution(delta);
     this.composer.render();
@@ -434,6 +438,8 @@ export class Game {
     this.stepActivationTileKey = undefined;
     this.setTransitionVeilOpacity(0);
     this.clearFlagThrows();
+    this.clearDroppedFlag();
+    this.deathAnim = undefined;
     this.phase = 'playing';
     this.shakeRemaining = 0;
     this.alarmLight.intensity = 0;
@@ -535,6 +541,7 @@ export class Game {
     this.effects.triggerMineBlast(this.tileGrid.tileWorldPosition(tile));
     this.shakeRemaining = 0.95;
     this.alarmLight.intensity = 42;
+    this.startDeathAnimation();
     this.syncHud();
   }
 
@@ -562,6 +569,75 @@ export class Game {
     const strength = this.shakeRemaining * 0.035;
     this.camera.rotation.z = (Math.random() - 0.5) * strength;
     this.camera.position.y = PLAYER_HEIGHT + (Math.random() - 0.5) * strength;
+  }
+
+  private startDeathAnimation(): void {
+    this.clearDroppedFlag();
+    this.camera.updateMatrixWorld(true);
+    const flagStart = this.viewModel.flagWorldPosition();
+    const flag = createFlagModel({ withBase: false, scale: 0.9 });
+    flag.position.copy(flagStart);
+    flag.rotation.set(0, this.camera.rotation.y, 0);
+    this.scene.add(flag);
+
+    const forward = new THREE.Vector3(0, 0, -1).applyEuler(this.camera.rotation);
+    forward.y = 0;
+    if (forward.lengthSq() < 1e-4) forward.set(0, 0, -1);
+    forward.normalize();
+
+    this.droppedFlag = flag;
+    this.droppedFlagState = {
+      velocity: new THREE.Vector3(forward.x * 0.7, 0.55, forward.z * 0.7),
+      angular: new THREE.Vector3(2.6, 1.1, 0.7),
+      settled: false,
+    };
+
+    this.deathAnim = {
+      elapsed: 0,
+      startY: this.camera.position.y,
+      startPitch: this.camera.rotation.x,
+      startRoll: this.camera.rotation.z,
+      startYaw: this.camera.rotation.y,
+      targetYaw: this.camera.rotation.y,
+    };
+  }
+
+  private updateDeathAnimation(delta: number): void {
+    if (this.droppedFlag && this.droppedFlagState) {
+      const state = this.droppedFlagState;
+      if (!state.settled) {
+        state.velocity.y -= 9.8 * delta;
+        this.droppedFlag.position.addScaledVector(state.velocity, delta);
+        this.droppedFlag.rotation.x += state.angular.x * delta;
+        this.droppedFlag.rotation.y += state.angular.y * delta;
+        this.droppedFlag.rotation.z += state.angular.z * delta;
+        if (this.droppedFlag.position.y <= 0.05) {
+          this.droppedFlag.position.y = 0.05;
+          this.droppedFlag.rotation.set(0, this.droppedFlag.rotation.y, Math.PI / 2);
+          state.settled = true;
+        }
+      }
+      updateFlagModel(this.droppedFlag, delta);
+    }
+
+    if (this.deathAnim && this.phase === 'failed') {
+      this.deathAnim.elapsed += delta;
+      const t = Math.min(this.deathAnim.elapsed / 0.9, 1);
+      const ease = 1 - Math.pow(1 - t, 3);
+      this.camera.position.y = THREE.MathUtils.lerp(this.deathAnim.startY, 0.32, ease);
+      this.camera.rotation.x = THREE.MathUtils.lerp(this.deathAnim.startPitch, -0.95, ease);
+      this.camera.rotation.z = THREE.MathUtils.lerp(this.deathAnim.startRoll, 0.55, ease);
+      this.camera.rotation.y = this.deathAnim.targetYaw;
+    }
+  }
+
+  private clearDroppedFlag(): void {
+    if (this.droppedFlag) {
+      this.scene.remove(this.droppedFlag);
+      disposeObject(this.droppedFlag);
+      this.droppedFlag = undefined;
+    }
+    this.droppedFlagState = undefined;
   }
 
   private throwFlagAt(tile: TileState): void {

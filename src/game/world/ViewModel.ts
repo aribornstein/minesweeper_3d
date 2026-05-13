@@ -232,7 +232,7 @@ export class ViewModel {
     this.remoteGroup.position.z = this.remoteRestZ - thrust * 0.24;
     this.remoteGroup.rotation.x = -0.08 - thrust * 0.46;
     this.remoteGroup.rotation.z = 0.1 + Math.sin(this.elapsed * 3.1) * 0.012 + thrust * 0.08;
-    const showHeld = this.flagThrowTimer <= 0.25;
+    const showHeld = this.flagThrowTimer <= 0.25 && phase !== 'failed';
     this.heldFlag.visible = showHeld;
     if (this.handOverlay) this.handOverlay.style.opacity = showHeld ? '1' : '0';
 
@@ -638,11 +638,13 @@ export class ViewModel {
 
   private drawPhaseChip(context: CanvasRenderingContext2D, phase: GamePhase, accent: string, levelNumber: number): void {
     const label = phase === 'failed' ? 'RETRY' : phase === 'solved' ? 'EXIT' : phase === 'escaped' ? 'NEXT' : `L${levelNumber}`;
-    this.drawPanel(context, 370, 38, 96, 36, accent, 0.16);
+    this.drawPanel(context, 340, 28, 144, 56, accent, 0.18);
     context.fillStyle = '#eefaff';
-    context.font = 'bold 18px system-ui';
+    context.font = 'bold 34px system-ui';
     context.textAlign = 'center';
-    context.fillText(label, 418, 62);
+    context.textBaseline = 'middle';
+    context.fillText(label, 412, 57);
+    context.textBaseline = 'alphabetic';
     context.textAlign = 'left';
   }
 

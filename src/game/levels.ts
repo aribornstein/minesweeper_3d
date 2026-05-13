@@ -4,11 +4,11 @@ import type { ChamberProfile, LayoutVariant, LevelDefinition, TileCoord } from '
 const FIRST_LEVEL_NUMBER = 1;
 const FIRST_WIDTH = 5;
 const FIRST_DEPTH = 6;
-const MAX_WIDTH = 14;
-const MAX_DEPTH = 16;
+const MAX_WIDTH = 9;
+const MAX_DEPTH = 11;
 const STARTING_DENSITY = 0.1;
-const DENSITY_STEP = 0.014;
-const MAX_DENSITY = 0.24;
+const DENSITY_STEP = 0.018;
+const MAX_DENSITY = 0.26;
 
 const BASE_PROFILES: ChamberProfile[] = [
   {
