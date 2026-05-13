@@ -1,4 +1,4 @@
-import type { ChamberProfile, LevelDefinition, TileCoord } from './types';
+import type { ChamberProfile, LayoutVariant, LevelDefinition, TileCoord } from './types';
 
 const FIRST_LEVEL_NUMBER = 1;
 const FIRST_WIDTH = 5;
@@ -12,36 +12,45 @@ const MAX_DENSITY = 0.24;
 const CHAMBER_PROFILES: ChamberProfile[] = [
   {
     label: 'Maintenance Bay',
-    floor: '#171b1d',
-    wall: '#202529',
-    wallDark: '#111619',
-    panel: '#162024',
-    trim: '#c98325',
-    coolTrim: '#26343a',
-    ceiling: '#20262a',
-    light: '#b7e9ff',
-    sideLight: '#4ccdf4',
-    warning: '#ffcf75',
+    visualStyle: 'clean',
+    floor: '#141a1f',
+    wall: '#1b2730',
+    wallDark: '#0e151b',
+    panel: '#13212b',
+    trim: '#d8b37c',
+    coolTrim: '#263a49',
+    ceiling: '#1a2630',
+    light: '#d5f0ff',
+    sideLight: '#58c9ff',
+    warning: '#f2cc82',
+    dressingDensity: 0.42,
+    haze: 0.22,
+    bloom: 0.38,
     stripeEvery: 2,
     lightEvery: 3,
   },
   {
     label: 'Relay Gallery',
-    floor: '#151a1a',
-    wall: '#1f2927',
-    wallDark: '#101817',
-    panel: '#152521',
-    trim: '#58b67d',
-    coolTrim: '#314846',
-    ceiling: '#1d2928',
-    light: '#b7ffd2',
-    sideLight: '#68e3a2',
+    visualStyle: 'highTech',
+    floor: '#111521',
+    wall: '#1b2233',
+    wallDark: '#0d111b',
+    panel: '#141b2e',
+    trim: '#7668ff',
+    coolTrim: '#2d3659',
+    ceiling: '#181f33',
+    light: '#a9d9ff',
+    sideLight: '#7b6cff',
     warning: '#f1d36c',
+    dressingDensity: 0.5,
+    haze: 0.2,
+    bloom: 0.42,
     stripeEvery: 3,
     lightEvery: 2,
   },
   {
     label: 'Signal Foundry',
+    visualStyle: 'industrial',
     floor: '#1b1918',
     wall: '#292725',
     wallDark: '#171413',
@@ -52,11 +61,15 @@ const CHAMBER_PROFILES: ChamberProfile[] = [
     light: '#ffd0a6',
     sideLight: '#ff9b6f',
     warning: '#ffe08a',
+    dressingDensity: 0.78,
+    haze: 0.52,
+    bloom: 0.42,
     stripeEvery: 2,
     lightEvery: 4,
   },
   {
     label: 'Survey Annex',
+    visualStyle: 'survey',
     floor: '#171a1d',
     wall: '#22282d',
     wallDark: '#12171c',
@@ -67,10 +80,15 @@ const CHAMBER_PROFILES: ChamberProfile[] = [
     light: '#d4edff',
     sideLight: '#8ac7ff',
     warning: '#ffce68',
+    dressingDensity: 0.58,
+    haze: 0.4,
+    bloom: 0.5,
     stripeEvery: 4,
     lightEvery: 2,
   },
 ];
+
+const LAYOUT_VARIANTS: LayoutVariant[] = ['standard', 'narrow', 'elevated', 'obstacle', 'asymmetric', 'lowVisibility', 'hazard', 'multiLevel'];
 
 type RandomSource = () => number;
 
@@ -80,6 +98,7 @@ export function createProceduralLevel(levelNumber = FIRST_LEVEL_NUMBER, random: 
   const depth = Math.min(MAX_DEPTH, FIRST_DEPTH + Math.ceil((normalizedLevel - 1) * 0.86));
   const mineDensity = Math.min(MAX_DENSITY, STARTING_DENSITY + (normalizedLevel - 1) * DENSITY_STEP);
   const chamber = CHAMBER_PROFILES[(normalizedLevel - 1) % CHAMBER_PROFILES.length];
+  const layoutVariant = LAYOUT_VARIANTS[(normalizedLevel - 1) % LAYOUT_VARIANTS.length];
   const startTile = { x: Math.floor(width / 2), z: depth - 1 };
   const exitTile = { x: chooseExitColumn(width, startTile.x, normalizedLevel, random), z: 0 };
   const safeRoute = createSafeRoute(startTile, exitTile, depth);
@@ -94,6 +113,7 @@ export function createProceduralLevel(levelNumber = FIRST_LEVEL_NUMBER, random: 
     name: `Training Chamber ${String(normalizedLevel).padStart(2, '0')}`,
     sector: `Sector ${7 + Math.floor((normalizedLevel - 1) / 3)}`,
     chamber,
+    layoutVariant,
     mineDensity,
     width,
     depth,

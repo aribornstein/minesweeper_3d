@@ -29,8 +29,13 @@ export type BoardProgress = {
   safeTileCount: number;
 };
 
+export type VisualStyle = 'clean' | 'industrial' | 'highTech' | 'survey';
+
+export type LayoutVariant = 'standard' | 'narrow' | 'elevated' | 'obstacle' | 'asymmetric' | 'lowVisibility' | 'hazard' | 'multiLevel';
+
 export type ChamberProfile = {
   label: string;
+  visualStyle: VisualStyle;
   floor: string;
   wall: string;
   wallDark: string;
@@ -41,6 +46,9 @@ export type ChamberProfile = {
   light: string;
   sideLight: string;
   warning: string;
+  dressingDensity: number;
+  haze: number;
+  bloom: number;
   stripeEvery: number;
   lightEvery: number;
 };
@@ -50,6 +58,7 @@ export type LevelDefinition = {
   name: string;
   sector: string;
   chamber: ChamberProfile;
+  layoutVariant: LayoutVariant;
   mineDensity: number;
   width: number;
   depth: number;

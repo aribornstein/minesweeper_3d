@@ -262,20 +262,23 @@ export class ViewModel {
   }
 
   private buildScanner(): void {
-    this.scannerGroup.position.set(-0.72, -0.49, -1.08);
+    this.scannerGroup.position.set(-0.7, -0.52, -1.12);
     this.scannerGroup.rotation.set(-0.2, 0.25, -0.12);
+    this.scannerGroup.scale.setScalar(0.92);
 
-    const bodyMaterial = new THREE.MeshStandardMaterial({ color: '#101417', roughness: 0.52, metalness: 0.54, envMapIntensity: 0.72 });
-    const edgeMaterial = new THREE.MeshStandardMaterial({ color: '#30383d', roughness: 0.36, metalness: 0.78, envMapIntensity: 0.84 });
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: '#0a1013', roughness: 0.46, metalness: 0.62, envMapIntensity: 0.82 });
+    const edgeMaterial = new THREE.MeshStandardMaterial({ color: '#3b474d', roughness: 0.28, metalness: 0.82, envMapIntensity: 0.92 });
     const gloveMaterial = new THREE.MeshStandardMaterial({ color: '#090908', roughness: 0.82, metalness: 0.04, envMapIntensity: 0.16 });
     const screenMaterial = new THREE.MeshBasicMaterial({ map: this.screenTexture, transparent: false });
-    const glassMaterial = new THREE.MeshBasicMaterial({ color: '#7fe7ff', transparent: true, opacity: 0.1, blending: THREE.AdditiveBlending, depthWrite: false });
+    const glassMaterial = new THREE.MeshBasicMaterial({ color: '#7fe7ff', transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false });
+    const screenGlowMaterial = new THREE.MeshBasicMaterial({ color: '#48cdf4', transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false });
 
     const body = new THREE.Mesh(new RoundedBoxGeometry(0.72, 0.78, 0.12, 4, 0.045), bodyMaterial);
     const bezel = new THREE.Mesh(new RoundedBoxGeometry(0.61, 0.59, 0.04, 3, 0.035), edgeMaterial);
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.5), screenMaterial);
     const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.52, 0.5), glassMaterial);
     const topRidge = new THREE.Mesh(new RoundedBoxGeometry(0.76, 0.08, 0.16, 3, 0.025), edgeMaterial);
+    const bottomLight = new THREE.Mesh(new RoundedBoxGeometry(0.54, 0.025, 0.02, 1, 0.006), screenGlowMaterial);
     const grip = new THREE.Mesh(new RoundedBoxGeometry(0.2, 0.55, 0.18, 3, 0.04), bodyMaterial);
     const sideRail = new THREE.Mesh(new RoundedBoxGeometry(0.045, 0.64, 0.07, 2, 0.018), edgeMaterial);
     const statusLed = new THREE.Mesh(
@@ -289,11 +292,12 @@ export class ViewModel {
     glass.position.copy(screen.position);
     glass.position.z += 0.003;
     topRidge.position.set(0, 0.43, 0.02);
+    bottomLight.position.set(0, -0.31, 0.102);
     grip.position.set(-0.48, -0.08, -0.02);
     sideRail.position.set(0.39, 0.0, 0.04);
     statusLed.position.set(0.28, 0.39, 0.1);
 
-    this.scannerGroup.add(body, bezel, screen, glass, topRidge, grip, sideRail, statusLed, ...this.createScannerScrews());
+    this.scannerGroup.add(body, bezel, screen, glass, topRidge, bottomLight, grip, sideRail, statusLed, ...this.createScannerScrews());
 
     for (let fingerIndex = 0; fingerIndex < 4; fingerIndex += 1) {
       const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.28, 8, 16), gloveMaterial);

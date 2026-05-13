@@ -11,6 +11,7 @@ type TileVisual = {
   rimMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   tileMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
   insetMesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  edgeLights: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
   routeGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   hoverGlow: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   marker?: THREE.Object3D;
@@ -23,6 +24,8 @@ export class TileGrid {
   private readonly visuals = new Map<string, TileVisual>();
   private readonly panelDetailTexture = createTileDetailTexture();
   private readonly panelRoughnessTexture = createTileRoughnessTexture();
+  private readonly panelNormalTexture = createTileNormalTexture();
+  private readonly panelAoTexture = createTileAoTexture();
   private readonly glowTexture = createSoftGlowTexture();
   private readonly suppressedFlagMarkers = new Set<string>();
   private hoverKey: string | undefined;
@@ -64,6 +67,13 @@ export class TileGrid {
     visual.routeGlow.visible = this.routeVisible && tile.isRouteHint && !tile.hasMine;
     visual.hoverGlow.visible = false;
     visual.hoverGlow.material.opacity = 0;
+    const edgeColor = tile.flagged ? COLORS.alarm : tile.revealed ? this.routeAccentColor() : COLORS.unknownTileInset;
+    const edgeOpacity = tile.flagged ? 0.42 : tile.revealed ? 0.18 : 0.06;
+    visual.edgeLights.forEach((edgeLight) => {
+      edgeLight.material.color.copy(edgeColor);
+      edgeLight.material.opacity = edgeOpacity;
+      edgeLight.material.userData.baseOpacity = edgeOpacity;
+    });
 
     if (visual.marker) {
       visual.root.remove(visual.marker);
@@ -106,12 +116,17 @@ export class TileGrid {
 
   animate(delta: number): void {
     this.elapsed += delta;
-    const pulse = 0.55 + Math.sin(this.elapsed * 5) * 0.25;
-    const hoverPulse = 0.34 + Math.sin(this.elapsed * 8.5) * 0.12;
+    const pulse = 0.09 + Math.sin(this.elapsed * 5) * 0.035;
+    const hoverPulse = 0.18 + Math.sin(this.elapsed * 8.5) * 0.08;
+    const edgePulse = 0.82 + Math.sin(this.elapsed * 4.2) * 0.18;
 
     this.visuals.forEach((visual) => {
       visual.routeGlow.material.opacity = visual.routeGlow.visible ? pulse : 0;
       visual.hoverGlow.material.opacity = visual.hoverGlow.visible ? hoverPulse : 0;
+      visual.edgeLights.forEach((edgeLight) => {
+        const baseOpacity = Number(edgeLight.material.userData.baseOpacity ?? edgeLight.material.opacity);
+        edgeLight.material.opacity = baseOpacity * edgePulse;
+      });
 
       if (visual.marker?.userData.kind === 'mine') {
         visual.marker.rotation.y += delta * 0.8;
@@ -153,6 +168,10 @@ export class TileGrid {
       visual.tileMesh.material.dispose();
       visual.rimMesh.geometry.dispose();
       visual.rimMesh.material.dispose();
+      visual.edgeLights.forEach((edgeLight) => {
+        edgeLight.geometry.dispose();
+        edgeLight.material.dispose();
+      });
       if (visual.label) {
         this.disposeLabel(visual.label);
       }
@@ -195,10 +214,10 @@ export class TileGrid {
         this.createTileMaterial(colors.inset, 0.52, 0.24),
       );
       const routeGlow = new THREE.Mesh(
-        new THREE.PlaneGeometry(TILE_SIZE - 0.18, TILE_SIZE - 0.18),
+        new THREE.PlaneGeometry(TILE_SIZE - 0.42, TILE_SIZE - 0.42),
         new THREE.MeshBasicMaterial({
           map: this.glowTexture,
-          color: COLORS.routeTile,
+          color: this.routeAccentColor(),
           transparent: true,
           opacity: 0,
           depthWrite: false,
@@ -223,6 +242,9 @@ export class TileGrid {
       mesh.receiveShadow = true;
       inset.castShadow = true;
       inset.receiveShadow = true;
+      prepareGeometryForAo(rim.geometry);
+      prepareGeometryForAo(mesh.geometry);
+      prepareGeometryForAo(inset.geometry);
       mesh.userData.tileCoord = { x: tile.x, z: tile.z } satisfies TileCoord;
       rim.position.y = -0.035;
       inset.position.y = 0.24;
@@ -232,11 +254,12 @@ export class TileGrid {
       hoverGlow.rotation.x = -Math.PI / 2;
       hoverGlow.position.y = 0.31;
       hoverGlow.visible = false;
+      const edgeLights = this.createTileEdgeLights();
       root.position.copy(this.tileWorldPosition(tile));
-      root.add(rim, mesh, inset, routeGlow, hoverGlow, ...this.createPanelBolts());
+      root.add(rim, mesh, inset, routeGlow, hoverGlow, ...edgeLights, ...this.createPanelBolts());
       this.group.add(root);
       this.interactiveMeshes.push(mesh);
-      this.visuals.set(this.key(tile), { root, rimMesh: rim, tileMesh: mesh, insetMesh: inset, routeGlow, hoverGlow });
+      this.visuals.set(this.key(tile), { root, rimMesh: rim, tileMesh: mesh, insetMesh: inset, edgeLights, routeGlow, hoverGlow });
       this.updateTile(tile);
     });
   }
@@ -246,28 +269,64 @@ export class TileGrid {
       color,
       map: this.panelDetailTexture,
       roughnessMap: this.panelRoughnessTexture,
+      normalMap: this.panelNormalTexture,
+      normalScale: new THREE.Vector2(0.045, 0.045),
+      aoMap: this.panelAoTexture,
+      aoMapIntensity: 0.24,
       roughness,
       metalness,
-      envMapIntensity: 0.22,
+      envMapIntensity: 0.28,
     });
+  }
+
+  private routeAccentColor(): THREE.Color {
+    if (this.level.chamber.visualStyle === 'industrial') {
+      return this.level.chamber.warning ? new THREE.Color(this.level.chamber.warning) : COLORS.routeTile;
+    }
+
+    return new THREE.Color(this.level.chamber.sideLight);
+  }
+
+  private createTileEdgeLights(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] {
+    const material = new THREE.MeshBasicMaterial({
+      color: COLORS.blueAccent,
+      transparent: true,
+      opacity: 0.12,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const longGeometry = new RoundedBoxGeometry(TILE_SIZE - 0.32, 0.012, 0.026, 1, 0.006);
+    const shortGeometry = new RoundedBoxGeometry(0.026, 0.012, TILE_SIZE - 0.32, 1, 0.006);
+    const offset = TILE_SIZE * 0.43;
+    const top = new THREE.Mesh(longGeometry, material.clone());
+    const bottom = new THREE.Mesh(longGeometry.clone(), material.clone());
+    const left = new THREE.Mesh(shortGeometry, material.clone());
+    const right = new THREE.Mesh(shortGeometry.clone(), material.clone());
+    top.position.set(0, 0.305, -offset);
+    bottom.position.set(0, 0.305, offset);
+    left.position.set(-offset, 0.305, 0);
+    right.position.set(offset, 0.305, 0);
+    return [top, bottom, left, right];
   }
 
   private tileColors(tile: TileState): { base: THREE.Color; inset: THREE.Color; emissive: THREE.Color } {
     const emissive = new THREE.Color('#000000');
+    const variation = 0.94 + pseudoRandom(tile.x * 17 + tile.z * 31, this.level.levelNumber * 13) * 0.1;
+    const vary = (color: THREE.Color): THREE.Color => color.clone().multiplyScalar(variation);
 
     if (tile.flagged) {
-      return { base: COLORS.flaggedTile, inset: new THREE.Color('#d75a41'), emissive: new THREE.Color('#310908') };
+      return { base: vary(COLORS.flaggedTile), inset: vary(new THREE.Color('#d75a41')), emissive: new THREE.Color('#310908') };
     }
 
     if (tile.revealed && tile.hasMine) {
-      return { base: new THREE.Color('#46201d'), inset: new THREE.Color('#7a1f18'), emissive: new THREE.Color('#3c0907') };
+      return { base: vary(new THREE.Color('#46201d')), inset: vary(new THREE.Color('#7a1f18')), emissive: new THREE.Color('#3c0907') };
     }
 
     if (tile.revealed) {
-      return { base: COLORS.safeTile, inset: COLORS.safeTileInset, emissive };
+      return { base: vary(COLORS.safeTile), inset: vary(COLORS.safeTileInset), emissive };
     }
 
-    return { base: COLORS.unknownTile, inset: COLORS.unknownTileInset, emissive };
+    return { base: vary(COLORS.unknownTile), inset: vary(COLORS.unknownTileInset), emissive };
   }
 
   private createPanelBolts(): THREE.Object3D[] {
@@ -472,6 +531,64 @@ function createTileRoughnessTexture(): THREE.CanvasTexture {
   return texture;
 }
 
+function createTileNormalTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Could not create tile normal texture.');
+  }
+
+  context.fillStyle = 'rgb(128, 128, 255)';
+  context.fillRect(0, 0, size, size);
+  context.strokeStyle = 'rgb(112, 126, 255)';
+  context.lineWidth = 5;
+  context.strokeRect(24, 24, size - 48, size - 48);
+  context.strokeStyle = 'rgb(144, 134, 255)';
+  context.lineWidth = 2;
+  context.strokeRect(42, 42, size - 84, size - 84);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = TEXTURE_ANISOTROPY;
+  return texture;
+}
+
+function createTileAoTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('Could not create tile AO texture.');
+  }
+
+  context.fillStyle = 'rgb(220, 220, 220)';
+  context.fillRect(0, 0, size, size);
+  const gradient = context.createRadialGradient(size / 2, size / 2, size * 0.18, size / 2, size / 2, size * 0.72);
+  gradient.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
+  gradient.addColorStop(0.58, 'rgba(138, 138, 138, 0.08)');
+  gradient.addColorStop(1, 'rgba(40, 40, 40, 0.34)');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, size, size);
+  context.strokeStyle = 'rgba(24, 24, 24, 0.24)';
+  context.lineWidth = 7;
+  context.strokeRect(22, 22, size - 44, size - 44);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = TEXTURE_ANISOTROPY;
+  return texture;
+}
+
 function createSoftGlowTexture(): THREE.CanvasTexture {
   const size = 256;
   const canvas = document.createElement('canvas');
@@ -494,6 +611,14 @@ function createSoftGlowTexture(): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = TEXTURE_ANISOTROPY;
   return texture;
+}
+
+function prepareGeometryForAo(geometry: THREE.BufferGeometry): void {
+  if (!geometry.attributes.uv || geometry.attributes.uv2) {
+    return;
+  }
+
+  geometry.setAttribute('uv2', geometry.attributes.uv.clone());
 }
 
 function pseudoRandom(index: number, salt: number): number {

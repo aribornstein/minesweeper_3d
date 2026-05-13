@@ -1,4 +1,9 @@
 import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { PLAYER_HEIGHT, RAYCAST_DISTANCE, TILE_SIZE } from './config';
 import { createProceduralLevel } from './levels';
@@ -28,7 +33,7 @@ declare global {
       cameraPosition: () => { x: number; y: number; z: number };
       moveToTile: (tileX: number, tileZ: number) => { x: number; y: number; z: number };
       exitSignal: () => { glow: string; status: string };
-      level: () => { levelNumber: number; name: string; sector: string; chamber: string; width: number; depth: number; mineCount: number; mineDensity: number };
+      level: () => { levelNumber: number; name: string; sector: string; chamber: string; visualStyle: string; layoutVariant: string; width: number; depth: number; mineCount: number; mineDensity: number };
       enterExit: () => GamePhase;
     };
   }
@@ -70,6 +75,9 @@ type FlagThrow = {
 
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
+  private readonly composer: EffectComposer;
+  private readonly ssaoPass: SSAOPass;
+  private readonly bloomPass: UnrealBloomPass;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly clock = new THREE.Clock();
   private readonly raycaster = new THREE.Raycaster();
@@ -107,11 +115,25 @@ export class Game {
     this.renderer.shadowMap.type = THREE.VSMShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.86;
+    this.renderer.toneMappingExposure = 0.92;
 
     this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
     const sceneParts = createScene(this.currentLevel);
     this.scene = sceneParts.scene;
+    const renderPass = new RenderPass(this.scene, this.camera);
+    this.ssaoPass = new SSAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight, 16);
+    this.ssaoPass.kernelRadius = 2.2;
+    this.ssaoPass.minDistance = 0.004;
+    this.ssaoPass.maxDistance = 0.055;
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.46, 0.42, 0.72);
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.addPass(renderPass);
+    this.composer.addPass(this.ssaoPass);
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(new OutputPass());
+    this.applyRenderProfile(this.currentLevel);
     this.levelEnvironment = sceneParts.levelEnvironment;
     this.applyLevelEnvironment(sceneParts.levelEnvironment);
     this.setExitSignal(false);
@@ -181,7 +203,7 @@ export class Game {
     );
     this.animateExit(delta);
     this.updateCameraShake(delta);
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   };
 
   private updateTargetedTile(): void {
@@ -577,6 +599,8 @@ export class Game {
         name: this.currentLevel.name,
         sector: this.currentLevel.sector,
         chamber: this.currentLevel.chamber.label,
+        visualStyle: this.currentLevel.chamber.visualStyle,
+        layoutVariant: this.currentLevel.layoutVariant,
         width: this.currentLevel.width,
         depth: this.currentLevel.depth,
         mineCount: this.currentLevel.mines.length,
@@ -707,6 +731,7 @@ export class Game {
     this.levelEnvironment = createLevelEnvironment(level);
     this.scene.add(this.levelEnvironment.group);
     this.applyLevelEnvironment(this.levelEnvironment);
+    this.applyRenderProfile(level);
     this.alarmLight.intensity = 0;
     this.player.reset(level);
     this.hud.setLevel(level);
@@ -742,11 +767,23 @@ export class Game {
     }
   }
 
+  private applyRenderProfile(level: LevelDefinition): void {
+    this.bloomPass.strength = 0.16 + level.chamber.bloom * 0.22;
+    this.bloomPass.radius = level.chamber.visualStyle === 'highTech' ? 0.32 : 0.28;
+    this.bloomPass.threshold = level.chamber.visualStyle === 'industrial' ? 0.86 : 0.82;
+    this.renderer.toneMappingExposure = level.chamber.visualStyle === 'clean' ? 0.82 : 0.76;
+  }
+
   private onResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
+    const pixelRatio = Math.min(window.devicePixelRatio, 2.25);
+    this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setPixelRatio(pixelRatio);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    this.ssaoPass.setSize(window.innerWidth, window.innerHeight);
+    this.bloomPass.setSize(window.innerWidth, window.innerHeight);
   };
 
   private createEnvironmentMap(): THREE.Texture {
