@@ -4,8 +4,6 @@ import type { LevelDefinition } from '../types';
 
 const DEFAULT_PITCH = -0.32;
 const DEFAULT_YAW = 0;
-const LOCKED_EXIT_BARRIER_OFFSET = 0.34;
-const EXIT_PASSAGE_HALF_WIDTH = 0.92;
 
 export class PlayerController {
   private readonly keys = new Set<string>();
@@ -15,7 +13,6 @@ export class PlayerController {
   private movementEnabled = false;
   private pointerLocked = false;
   private pointerLockUnavailable = false;
-  private exitUnlocked = false;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -80,10 +77,6 @@ export class PlayerController {
     }
   }
 
-  setExitUnlocked(unlocked: boolean): void {
-    this.exitUnlocked = unlocked;
-  }
-
   lookBy(movementX: number, movementY: number): void {
     if (!this.movementEnabled) {
       return;
@@ -119,13 +112,11 @@ export class PlayerController {
       movement.normalize().multiplyScalar(WALK_SPEED * delta);
       this.camera.position.add(movement);
       this.clampToRoom();
-      this.blockLockedExit();
     }
   }
 
   reset(level: LevelDefinition = this.level): void {
     this.level = level;
-    this.exitUnlocked = false;
     this.camera.position.copy(this.startPosition());
     this.pitch = DEFAULT_PITCH;
     this.yaw = DEFAULT_YAW;
@@ -175,19 +166,5 @@ export class PlayerController {
     this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, -halfWidth, halfWidth);
     this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, -halfDepth, halfDepth);
     this.camera.position.y = PLAYER_HEIGHT;
-  }
-
-  private blockLockedExit(): void {
-    if (this.exitUnlocked) {
-      return;
-    }
-
-    const exitX = (this.level.exitTile.x - (this.level.width - 1) / 2) * TILE_SIZE;
-    const exitZ = (this.level.exitTile.z - (this.level.depth - 1) / 2) * TILE_SIZE;
-    const barrierZ = exitZ - LOCKED_EXIT_BARRIER_OFFSET;
-
-    if (Math.abs(this.camera.position.x - exitX) <= EXIT_PASSAGE_HALF_WIDTH && this.camera.position.z < barrierZ) {
-      this.camera.position.z = barrierZ;
-    }
   }
 }

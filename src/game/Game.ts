@@ -53,6 +53,8 @@ const TRANSITION_FADE_OUT_START = 1.3;
 const TRANSITION_FADE_OUT_END = 1.86;
 const EXIT_PANEL_CLOSED_Y = 1.23;
 const EXIT_PANEL_OPEN_Y = 4.15;
+const LOCKED_EXIT_BARRIER_OFFSET = 0.34;
+const EXIT_OPENING_HALF_WIDTH = 0.92;
 const FLAG_THROW_DURATION = 0.46;
 const STEP_ACTIVATION_COOLDOWN = 0.42;
 const STEP_ACTIVATION_TILE_RADIUS = TILE_SIZE * 0.42;
@@ -211,8 +213,8 @@ export class Game {
   private tick = (): void => {
     const delta = Math.min(this.clock.getDelta(), 0.05);
     if (!this.levelTransition && this.phase !== 'failed' && this.phase !== 'escaped') {
-      this.player.setExitUnlocked(this.phase === 'solved');
       this.player.update(delta);
+      this.enforceLockedExitBarrier();
       this.updateStepActivation(delta);
     }
     this.updateLevelTransition(delta);
@@ -460,6 +462,16 @@ export class Game {
     const exitDistance = this.camera.position.distanceTo(this.tileGrid.tileWorldPosition(this.currentLevel.exitTile));
     if (this.phase === 'solved' && exitDistance < 1.9 && !this.levelTransition) {
       this.beginLevelTransition();
+    }
+  }
+
+  private enforceLockedExitBarrier(): void {
+    const exitPosition = this.tileGrid.tileWorldPosition(this.currentLevel.exitTile);
+    const barrierZ = exitPosition.z - LOCKED_EXIT_BARRIER_OFFSET;
+    const isInsideOpenExit = this.phase === 'solved' && Math.abs(this.camera.position.x - exitPosition.x) <= EXIT_OPENING_HALF_WIDTH;
+
+    if (!isInsideOpenExit && this.camera.position.z < barrierZ) {
+      this.camera.position.z = barrierZ;
     }
   }
 
