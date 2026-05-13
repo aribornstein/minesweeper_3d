@@ -73,8 +73,8 @@ export class TileGrid {
     visual.routeGlow.visible = this.routeVisible && tile.isRouteHint && !tile.hasMine;
     visual.hoverGlow.visible = false;
     visual.hoverGlow.material.opacity = 0;
-    const edgeColor = tile.flagged ? COLORS.alarm : tile.revealed ? this.routeAccentColor() : COLORS.unknownTileInset;
-    const edgeOpacity = tile.flagged ? 0.42 : tile.revealed ? 0.18 : 0.06;
+    const edgeColor = tile.flagged ? COLORS.alarm : tile.revealed && tile.isRouteHint ? this.routeAccentColor() : tile.revealed ? new THREE.Color('#f2ede0') : COLORS.unknownTileInset;
+    const edgeOpacity = tile.flagged ? 0.42 : tile.revealed && tile.isRouteHint ? 0.28 : tile.revealed ? 0.1 : 0.035;
     visual.edgeLights.forEach((edgeLight) => {
       edgeLight.material.color.copy(edgeColor);
       edgeLight.material.opacity = edgeOpacity;
@@ -322,11 +322,7 @@ export class TileGrid {
   }
 
   private routeAccentColor(): THREE.Color {
-    if (this.level.chamber.visualStyle === 'industrial') {
-      return this.level.chamber.warning ? new THREE.Color(this.level.chamber.warning) : COLORS.routeTile;
-    }
-
-    return new THREE.Color(this.level.chamber.sideLight);
+    return COLORS.routeTile;
   }
 
   private createTileEdgeLights(): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[] {
@@ -367,14 +363,12 @@ export class TileGrid {
       // Slightly brighter and cleaner so cleared cells visually pop vs unknown.
       const cleaned = vary(COLORS.safeTile.clone().multiplyScalar(1.08));
       const cleanedInset = vary(COLORS.safeTileInset.clone().multiplyScalar(1.04));
-      // Route-hint tiles get a soft cyan/warm path emissive to read as the safe corridor.
+      // Route-hint tiles get a warm path emissive to read as navigation, not system data or danger.
       let accent: THREE.Color;
       if (tile.isRouteHint && !tile.hasMine) {
-        accent = this.level.chamber.visualStyle === 'industrial'
-          ? new THREE.Color('#3a2412')
-          : new THREE.Color('#102132');
+        accent = new THREE.Color('#3a2b12');
       } else {
-        accent = this.level.chamber.visualStyle === 'industrial' ? new THREE.Color('#1d1208') : new THREE.Color('#08101a');
+        accent = new THREE.Color('#10100c');
       }
       return { base: cleaned, inset: cleanedInset, emissive: accent };
     }

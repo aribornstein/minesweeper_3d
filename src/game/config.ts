@@ -25,7 +25,7 @@ export const COLORS = {
   unknownTileInset: new THREE.Color('#7c8582'),
   hoverTile: new THREE.Color('#9ed9ea'),
   flaggedTile: new THREE.Color('#a64232'),
-  routeTile: new THREE.Color('#5fd37e'),
+  routeTile: new THREE.Color('#ffd36b'),
   mine: new THREE.Color('#161616'),
   exit: new THREE.Color('#32d17d'),
   alarm: new THREE.Color('#ff3d2e'),

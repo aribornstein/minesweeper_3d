@@ -211,6 +211,7 @@ export class Game {
   private tick = (): void => {
     const delta = Math.min(this.clock.getDelta(), 0.05);
     if (!this.levelTransition && this.phase !== 'failed' && this.phase !== 'escaped') {
+      this.player.setExitUnlocked(this.phase === 'solved');
       this.player.update(delta);
       this.updateStepActivation(delta);
     }

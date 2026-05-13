@@ -19,6 +19,12 @@ const DEFAULT_QUALITY: QualitySettings = {
   rectAreaLightDensity: 1,
 };
 
+const SYSTEM_CYAN = '#35d4ff';
+const SYSTEM_CYAN_DIM = '#126f8a';
+const GRID_GUIDE = '#ffe6a3';
+const GRID_CORE = '#fff8e6';
+const DANGER_RED = '#ff3d2e';
+
 type SurfaceKind = 'floor' | 'wall' | 'dark-panel' | 'metal' | 'trim' | 'door';
 
 export type SceneParts = {
@@ -100,11 +106,11 @@ export function createLevelEnvironment(level: LevelDefinition, quality: QualityS
 
   addExteriorVista(group, level);
 
-  const alarmLight = new THREE.PointLight('#ff4d2f', 0, 14, 2);
+  const alarmLight = new THREE.PointLight(DANGER_RED, 0, 14, 2);
   alarmLight.position.set(0, 3.1, -1.4);
   group.add(alarmLight);
 
-  const exitGlow = new THREE.PointLight('#ff3d2e', 3.2, 10, 2);
+  const exitGlow = new THREE.PointLight(DANGER_RED, 3.2, 10, 2);
   const exitPosition = tileWorldPosition(level, level.exitTile);
   exitGlow.position.set(exitPosition.x, 1.8, exitPosition.z - 0.65);
   group.add(exitGlow);
@@ -152,8 +158,7 @@ function createChamberSkyTexture(level: LevelDefinition): THREE.CanvasTexture {
     throw new Error('Could not create chamber sky texture.');
   }
 
-  const topColor = new THREE.Color(level.chamber.sideLight);
-  const warningColor = new THREE.Color(level.chamber.warning);
+  const topColor = new THREE.Color(SYSTEM_CYAN_DIM);
   const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
   gradient.addColorStop(0, '#102733');
   gradient.addColorStop(0.34, `rgba(${Math.round(topColor.r * 78)}, ${Math.round(topColor.g * 128)}, ${Math.round(topColor.b * 145)}, 1)`);
@@ -164,7 +169,7 @@ function createChamberSkyTexture(level: LevelDefinition): THREE.CanvasTexture {
 
   for (let layer = 0; layer < 4; layer += 1) {
     context.globalAlpha = 0.08 + layer * 0.028;
-    context.fillStyle = layer % 2 === 0 ? '#7fdfff' : colorToStyle(warningColor);
+    context.fillStyle = layer % 2 === 0 ? '#7fdfff' : SYSTEM_CYAN_DIM;
     for (let index = 0; index < 28; index += 1) {
       const random = pseudoRandom(index, layer * 37 + level.levelNumber * 17);
       const x = pseudoRandom(index, layer + 3) * canvas.width;
@@ -283,9 +288,9 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, qua
   const railDepth = level.depth * TILE_SIZE + 3.2;
   const laneWidth = level.width * TILE_SIZE + 3.1;
   const stripMaterial = new THREE.MeshBasicMaterial({
-    color: level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.light,
+    color: SYSTEM_CYAN,
     transparent: true,
-    opacity: level.chamber.visualStyle === 'clean' ? 0.34 : 0.26,
+    opacity: 0.08,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -300,19 +305,19 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, qua
     target.add(channel, strip);
   });
 
-  // Concept 1's signature: warm orange light strips between every tile row.
+  // Warm grid guides clarify row boundaries and safe navigation without reading as danger.
   const interRowMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
-    emissive: new THREE.Color(level.chamber.warning),
-    emissiveIntensity: 2.6,
+    emissive: new THREE.Color(GRID_GUIDE),
+    emissiveIntensity: 1.55,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
   });
   const interRowCoreMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
-    emissive: new THREE.Color('#fff1d0'),
-    emissiveIntensity: 3.4,
+    emissive: new THREE.Color(GRID_CORE),
+    emissiveIntensity: 2.3,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
@@ -339,7 +344,7 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, qua
 
     let interRowLight: THREE.RectAreaLight | undefined;
     if (rowIndex % stripStride === 0) {
-      interRowLight = new THREE.RectAreaLight(level.chamber.warning, 1.4, stripLength - 0.2, 0.14);
+      interRowLight = new THREE.RectAreaLight(GRID_GUIDE, 0.75, stripLength - 0.2, 0.14);
       interRowLight.position.set(0, 0.12, z);
       interRowLight.rotation.x = -Math.PI / 2;
       target.add(interRowLight);
@@ -350,16 +355,16 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, qua
   // Slow traveling pulse through the inter-row strips: a brightness wave sweeps forward and loops.
   if (animators && stripMeshes.length > 0) {
     const rowCount = stripMeshes.length;
-    const baseStripEmissive = 2.6;
-    const baseCoreEmissive = 3.4;
-    const baseLightIntensity = 1.0;
+    const baseStripEmissive = 1.55;
+    const baseCoreEmissive = 2.3;
+    const baseLightIntensity = 0.58;
     animators.push((elapsed) => {
       const wave = (elapsed * 0.6) % (rowCount + 2);
       for (let i = 0; i < rowCount; i += 1) {
         const distance = Math.abs(i - wave);
         const wrapped = Math.min(distance, rowCount + 2 - distance);
         const pulse = Math.max(0, 1 - wrapped * 0.75);
-        const strength = 0.7 + pulse * 0.8;
+        const strength = 0.88 + pulse * 0.24;
         const item = stripMeshes[i];
         item.strip.material.emissiveIntensity = baseStripEmissive * strength;
         item.core.material.emissiveIntensity = baseCoreEmissive * strength;
@@ -479,7 +484,7 @@ function addWalls(target: THREE.Object3D, level: LevelDefinition, quality: Quali
   addSegmentedBackWall(target, level, width, depth, wallMaterial);
   addBackWallFocalArchitecture(target, level, width, depth, darkMaterial, trimMaterial, coolTrimMaterial);
 
-  const sideGlowColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight;
+  const sideGlowColor = SYSTEM_CYAN;
   target.add(buildExtrudedSideWall(level, width, depth, -1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor, quality));
   target.add(buildExtrudedSideWall(level, width, depth, 1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor, quality));
 
@@ -658,7 +663,7 @@ function buildExtrudedSideWall(
   const topStripMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
     emissive: new THREE.Color(glowColor),
-    emissiveIntensity: 5.5,
+    emissiveIntensity: 0.75,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
@@ -670,18 +675,18 @@ function buildExtrudedSideWall(
   topLightStrip.position.set(0, wallHeight - 0.36, thickness + 0.03);
   group.add(topLightStrip);
 
-  const topRectLight = new THREE.RectAreaLight(glowColor, level.chamber.visualStyle === 'industrial' ? 0.7 : 1.05, wallLength - 0.5, 0.04);
+  const topRectLight = new THREE.RectAreaLight(glowColor, 0.16, wallLength - 0.5, 0.04);
   topRectLight.position.set(0, wallHeight - 0.36, thickness + 0.05);
   topRectLight.lookAt(new THREE.Vector3(0, wallHeight - 0.36, thickness + 1));
   group.add(topRectLight);
 
-  // Subtle warm under-rail amber accent like concept 1.
+  // Low warm guide rail: navigation support, not alarm lighting.
   const warmStrip = new THREE.Mesh(
     new RoundedBoxGeometry(wallLength - 0.6, 0.022, 0.018, 1, 0.006),
     new THREE.MeshStandardMaterial({
       color: '#000000',
-      emissive: new THREE.Color(level.chamber.warning),
-      emissiveIntensity: 3.2,
+      emissive: new THREE.Color(GRID_GUIDE),
+      emissiveIntensity: 1.05,
       roughness: 1,
       metalness: 0,
       toneMapped: false,
@@ -724,7 +729,7 @@ function addWallStructuralRibs(
       const armorBottom = armorTop.clone();
       const accent = new THREE.Mesh(
         new RoundedBoxGeometry(0.035, 2.9, 0.045, 1, 0.01),
-        new THREE.MeshBasicMaterial({ color: level.chamber.sideLight, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }),
+        new THREE.MeshBasicMaterial({ color: SYSTEM_CYAN, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false }),
       );
 
       shadowSlot.position.x = side * -0.07;
@@ -749,8 +754,8 @@ function addObservationWindows(target: THREE.Object3D, level: LevelDefinition, w
   const frameMaterial = createIndustrialMaterial(level.chamber.coolTrim, 0.42, 0.68, 'metal', 1, 1.2);
   const glowMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
-    emissive: new THREE.Color(level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight),
-    emissiveIntensity: 3.6,
+    emissive: new THREE.Color(SYSTEM_CYAN),
+    emissiveIntensity: 0.75,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
@@ -808,8 +813,8 @@ function addWallConduits(
   const cableMaterial = new THREE.MeshStandardMaterial({ color: '#070b0d', roughness: 0.48, metalness: 0.34, envMapIntensity: 0.38 });
   const glowMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
-    emissive: new THREE.Color(level.chamber.warning),
-    emissiveIntensity: 4.0,
+    emissive: new THREE.Color(SYSTEM_CYAN),
+    emissiveIntensity: 0.62,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
@@ -945,16 +950,16 @@ function addBackWallFocalArchitecture(
   const exitX = tileWorldPosition(level, level.exitTile).x;
   const lightMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
-    emissive: new THREE.Color(level.chamber.light),
-    emissiveIntensity: level.chamber.visualStyle === 'industrial' ? 3.2 : 5.0,
+    emissive: new THREE.Color(GRID_GUIDE),
+    emissiveIntensity: 2.0,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
   });
   const diagnosticMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
-    emissive: new THREE.Color(level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight),
-    emissiveIntensity: 3.0,
+    emissive: new THREE.Color(SYSTEM_CYAN),
+    emissiveIntensity: 1.3,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
@@ -1021,19 +1026,19 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
   const backZ = -depth / 2 + 0.24;
   const exitOpeningX = tileWorldPosition(level, level.exitTile).x;
   const exitOpeningWidth = 3.2;
-  const lineColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.light;
+  const lineColor = SYSTEM_CYAN;
   const lineMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
     emissive: new THREE.Color(lineColor),
-    emissiveIntensity: level.chamber.visualStyle === 'industrial' ? 3.4 : 4.6,
+    emissiveIntensity: 0.72,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
   });
-  const amberAccentMaterial = new THREE.MeshStandardMaterial({
+  const guideAccentMaterial = new THREE.MeshStandardMaterial({
     color: '#000000',
-    emissive: new THREE.Color(level.chamber.warning),
-    emissiveIntensity: 4.2,
+    emissive: new THREE.Color(GRID_GUIDE),
+    emissiveIntensity: 1.25,
     roughness: 1,
     metalness: 0,
     toneMapped: false,
@@ -1047,7 +1052,7 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
     ...createSplitBackBand(width * 0.68, 0.028, 0.03, 0.76, backZ + 0.12, lineMaterial, exitOpeningX, exitOpeningWidth),
   );
   target.add(...bandMeshes);
-  const catchMaterial = createEdgeCatchMaterial(level.chamber.light, 0.22);
+  const catchMaterial = createEdgeCatchMaterial(GRID_GUIDE, 0.16);
   const backCatchLines = [
     ...createSplitBackBand(width * 0.72, 0.016, 0.022, 0.63, backZ + 0.15, catchMaterial, exitOpeningX, exitOpeningWidth),
     ...createSplitBackBand(width - 0.92, 0.018, 0.024, 3.37, backZ + 0.14, catchMaterial, exitOpeningX, exitOpeningWidth),
@@ -1059,7 +1064,7 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
     const x = side * (width / 2 - 0.22);
     const upperRail = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.11, depth - 0.85, 2, 0.025), coolTrimMaterial);
     const lowerRail = new THREE.Mesh(new RoundedBoxGeometry(0.13, 0.12, depth - 0.85, 2, 0.025), coolTrimMaterial);
-    const amberLine = new THREE.Mesh(new RoundedBoxGeometry(0.052, 0.045, depth * 0.72, 1, 0.01), amberAccentMaterial);
+    const guideLine = new THREE.Mesh(new RoundedBoxGeometry(0.052, 0.045, depth * 0.72, 1, 0.01), guideAccentMaterial);
     const upperGlow = new THREE.Mesh(new RoundedBoxGeometry(0.026, 0.036, depth * 0.72, 1, 0.008), lineMaterial.clone());
     const lowerGlow = new THREE.Mesh(new RoundedBoxGeometry(0.024, 0.028, depth * 0.68, 1, 0.008), lineMaterial.clone());
     const upperCatch = new THREE.Mesh(new RoundedBoxGeometry(0.018, 0.016, depth * 0.66, 1, 0.006), catchMaterial.clone());
@@ -1067,13 +1072,13 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
 
     upperRail.position.set(x, 3.28, 0);
     lowerRail.position.set(x, 0.35, 0);
-    amberLine.position.set(x - side * 0.055, 0.55, 0);
+    guideLine.position.set(x - side * 0.055, 0.55, 0);
     upperGlow.position.set(x - side * 0.078, 2.98, 0);
     lowerGlow.position.set(x - side * 0.078, 0.74, 0);
     upperCatch.position.set(x - side * 0.115, 3.36, 0);
     lowerCatch.position.set(x - side * 0.115, 0.44, 0);
-    target.add(upperRail, lowerRail, amberLine, upperGlow, lowerGlow, upperCatch, lowerCatch);
-    bandMeshes.push(upperRail, lowerRail, amberLine, upperGlow, lowerGlow, upperCatch, lowerCatch);
+    target.add(upperRail, lowerRail, guideLine, upperGlow, lowerGlow, upperCatch, lowerCatch);
+    bandMeshes.push(upperRail, lowerRail, guideLine, upperGlow, lowerGlow, upperCatch, lowerCatch);
   });
 
   bandMeshes.forEach((mesh) => {
@@ -1158,7 +1163,7 @@ function addBackWallModules(
       accentColumn.position.set(0.34, 0, 0.09);
       group.add(accentColumn);
     } else if ((panelIndex + level.levelNumber) % level.chamber.lightEvery === 0) {
-      const lightStrip = createWallLight(level.chamber.sideLight);
+      const lightStrip = createWallLight(SYSTEM_CYAN);
       lightStrip.position.set(-0.38, 0.82, 0.095);
       group.add(lightStrip);
     } else {
@@ -1207,9 +1212,9 @@ function addSideWallModules(
       const innerRightRail = innerLeftRail.clone();
       const centerServicePlate = new THREE.Mesh(new RoundedBoxGeometry(0.06, 1.04, 0.34, 2, 0.018), darkMaterial);
       const dataLineMaterial = new THREE.MeshBasicMaterial({
-        color: level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight,
+        color: SYSTEM_CYAN,
         transparent: true,
-        opacity: level.chamber.visualStyle === 'industrial' ? 0.24 : 0.32,
+        opacity: 0.09,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
       });
@@ -1232,7 +1237,7 @@ function addSideWallModules(
       group.add(recess, shell, inset, amberStile, topCap, bottomCap, innerTopCap, innerBottomCap, innerLeftRail, innerRightRail, centerServicePlate, verticalDataLine, lowerServicePlate);
 
       if ((bayIndex + side + level.levelNumber) % level.chamber.lightEvery === 0) {
-        const lightStrip = createWallLight(level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight);
+        const lightStrip = createWallLight(SYSTEM_CYAN);
         lightStrip.position.set(side * -0.185, 0.58, 0.38);
         lightStrip.rotation.y = side * Math.PI / 2;
         group.add(lightStrip);
@@ -1246,8 +1251,8 @@ function addSideWallModules(
 
       const microPanelMaterial = new THREE.MeshStandardMaterial({
         color: '#000000',
-        emissive: new THREE.Color(level.chamber.light),
-        emissiveIntensity: 3.2,
+        emissive: new THREE.Color(SYSTEM_CYAN),
+        emissiveIntensity: 0.62,
         roughness: 1,
         metalness: 0,
         toneMapped: false,
@@ -1293,7 +1298,7 @@ function createWallLight(color: string): THREE.Group {
     new THREE.MeshStandardMaterial({
       color: '#000000',
       emissive: color,
-      emissiveIntensity: 5.5,
+      emissiveIntensity: 0.82,
       roughness: 1,
       metalness: 0,
       toneMapped: false,
@@ -1303,7 +1308,7 @@ function createWallLight(color: string): THREE.Group {
   group.add(casing, glow);
 
   // Tiny localized point light so the wall around the fixture actually catches a bit of spill.
-  const spill = new THREE.PointLight(color, 0.45, 0.85, 2.2);
+  const spill = new THREE.PointLight(color, 0.07, 0.5, 2.2);
   spill.position.set(0, 0, 0.12);
   group.add(spill);
 
@@ -1355,13 +1360,13 @@ function addOverheadBeams(target: THREE.Object3D, level: LevelDefinition, qualit
 function addTrainingPanels(target: THREE.Object3D, level: LevelDefinition, animators?: EnvironmentAnimator[]): void {
   const halfWidth = (level.width * TILE_SIZE + 5.2) / 2;
   const halfDepth = (level.depth * TILE_SIZE + 5.8) / 2;
-  const panelTextColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : '#dff7ff';
-  const leftPanel = createTextPanel([level.name.toUpperCase(), level.chamber.label.toUpperCase(), '', `GRID ${level.width}x${level.depth}`, `MINES ${level.mines.length}`], panelTextColor, level.chamber.sideLight);
+  const panelTextColor = '#dff7ff';
+  const leftPanel = createTextPanel(['SYSTEM CONTROL', level.chamber.label.toUpperCase(), '', `GRID ${level.width}x${level.depth}`, `MINES ${level.mines.length}`], panelTextColor, SYSTEM_CYAN);
   leftPanel.position.set(-halfWidth + 0.44, 2.85, -Math.min(halfDepth - 1.4, 3.9));
   leftPanel.rotation.y = Math.PI / 2;
   target.add(leftPanel);
 
-  const rightPanel = createTextPanel([level.sector.toUpperCase(), 'RANDOMIZED MINES', '', 'SOLVE TO UNLOCK', 'WALK THROUGH EXIT'], panelTextColor, level.chamber.sideLight);
+  const rightPanel = createTextPanel([level.sector.toUpperCase(), 'ROUTE STATUS', '', 'SOLVE TO UNLOCK', 'EXIT DOOR ARMED'], panelTextColor, SYSTEM_CYAN);
   rightPanel.position.set(halfWidth - 0.44, 2.85, -Math.min(halfDepth - 1.4, 3.25));
   rightPanel.rotation.y = -Math.PI / 2;
   target.add(rightPanel);
@@ -1370,11 +1375,11 @@ function addTrainingPanels(target: THREE.Object3D, level: LevelDefinition, anima
 function addThemeDecals(target: THREE.Object3D, level: LevelDefinition): void {
   const halfWidth = (level.width * TILE_SIZE + 5.2) / 2;
   const halfDepth = (level.depth * TILE_SIZE + 5.8) / 2;
-  const color = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight;
-  const accent = level.layoutVariant === 'hazard' ? level.chamber.warning : level.chamber.light;
+  const color = SYSTEM_CYAN;
+  const accent = level.layoutVariant === 'hazard' ? DANGER_RED : GRID_GUIDE;
   const floorLabels = [
-    { text: 'SERVICE', x: -halfWidth + 1.12, z: halfDepth - 1.18, rotation: 0 },
-    { text: 'CLEAR', x: halfWidth - 1.12, z: halfDepth - 1.18, rotation: 0 },
+    { text: 'SCAN', x: -halfWidth + 1.12, z: halfDepth - 1.18, rotation: 0 },
+    { text: 'EXIT PATH', x: halfWidth - 1.12, z: halfDepth - 1.18, rotation: 0 },
   ];
 
   floorLabels.forEach((label, index) => {
@@ -1386,7 +1391,7 @@ function addThemeDecals(target: THREE.Object3D, level: LevelDefinition): void {
   });
 
   [-1, 1].forEach((side) => {
-    const warningDecal = createDecalPlane(level.chamber.visualStyle === 'industrial' ? 'CAUTION' : 'AUX POWER', accent, 0.92, 0.22, 512, 128);
+    const warningDecal = createDecalPlane(level.layoutVariant === 'hazard' ? 'DANGER' : 'GRID GUIDE', accent, 0.92, 0.22, 512, 128);
     warningDecal.position.set(side * (halfWidth - 0.13), 0.86, -halfDepth + 2.28);
     warningDecal.rotation.y = side * -Math.PI / 2;
     target.add(warningDecal);
@@ -1401,7 +1406,7 @@ function addThemeDecals(target: THREE.Object3D, level: LevelDefinition): void {
 
   if (level.layoutVariant === 'hazard') {
     for (let index = 0; index < 4; index += 1) {
-      const decal = createDecalPlane('HOT ZONE', level.chamber.warning, 1.0, 0.24, 512, 128);
+      const decal = createDecalPlane('HOT ZONE', DANGER_RED, 1.0, 0.24, 512, 128);
       decal.position.set((index % 2 === 0 ? -1 : 1) * (halfWidth - 1.32), 0.006, -halfDepth + 2.1 + index * 1.05);
       decal.rotation.x = -Math.PI / 2;
       decal.rotation.z = index % 2 === 0 ? Math.PI / 2 : -Math.PI / 2;
@@ -1413,9 +1418,9 @@ function addThemeDecals(target: THREE.Object3D, level: LevelDefinition): void {
 function createTrimMarker(level: LevelDefinition, side: number, index: number): THREE.Group {
   const group = new THREE.Group();
   const material = new THREE.MeshBasicMaterial({
-    color: level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight,
+    color: SYSTEM_CYAN,
     transparent: true,
-    opacity: 0.32 - index * 0.04,
+    opacity: 0.18 - index * 0.025,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -1459,11 +1464,11 @@ function createDecalPlane(text: string, color: string, width: number, height: nu
 
 function createWallAccentColumn(level: LevelDefinition, frameMaterial: THREE.Material, trimMaterial: THREE.Material): THREE.Group {
   const group = new THREE.Group();
-  const glowColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight;
+  const glowColor = SYSTEM_CYAN;
   const glowMaterial = new THREE.MeshBasicMaterial({
     color: glowColor,
     transparent: true,
-    opacity: level.chamber.visualStyle === 'industrial' ? 0.34 : 0.42,
+    opacity: 0.08,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
@@ -1603,7 +1608,7 @@ function createExitDoor(level: LevelDefinition, animators?: EnvironmentAnimator[
   [-1, 1].forEach((side) => {
     const apertureGuide = new THREE.Mesh(
       new RoundedBoxGeometry(0.045, 2.16, 0.035, 1, 0.008),
-      new THREE.MeshBasicMaterial({ color: level.chamber.light, transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: GRID_GUIDE, transparent: true, opacity: 0.58, blending: THREE.AdditiveBlending, depthWrite: false }),
     );
     apertureGuide.position.set(side * 0.68, 1.32, -0.2);
     group.add(apertureGuide);
@@ -1654,7 +1659,7 @@ function createExitDoor(level: LevelDefinition, animators?: EnvironmentAnimator[
   doorPanel.add(dataPort);
   const dataPortGlow = new THREE.Mesh(
     new RoundedBoxGeometry(0.22, 0.034, 0.02, 1, 0.008),
-    new THREE.MeshBasicMaterial({ color: level.chamber.sideLight, transparent: true, opacity: 0.78, blending: THREE.AdditiveBlending, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: SYSTEM_CYAN, transparent: true, opacity: 0.62, blending: THREE.AdditiveBlending, depthWrite: false }),
   );
   dataPortGlow.position.set(0.36, -0.96, 0.225);
   doorPanel.add(dataPortGlow);
@@ -1718,7 +1723,7 @@ function createExitDoor(level: LevelDefinition, animators?: EnvironmentAnimator[
 
 function createDoorHeader(level: LevelDefinition, trimMaterial: THREE.Material, frameMaterial: THREE.Material): THREE.Group {
   const group = new THREE.Group();
-  const glowColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight;
+  const glowColor = SYSTEM_CYAN;
   const bezelMaterial = new THREE.MeshStandardMaterial({ color: '#05090d', roughness: 0.36, metalness: 0.52, envMapIntensity: 0.42 });
   const glassMaterial = new THREE.MeshPhysicalMaterial({
     color: glowColor,
@@ -1775,11 +1780,11 @@ function createDoorHeader(level: LevelDefinition, trimMaterial: THREE.Material, 
 function createDoorLightColumn(level: LevelDefinition): THREE.Group {
   const group = new THREE.Group();
   const casingMaterial = new THREE.MeshStandardMaterial({ color: '#0d1216', roughness: 0.44, metalness: 0.58, envMapIntensity: 0.4 });
-  const glowColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.light;
+  const glowColor = GRID_GUIDE;
   const glowMaterial = new THREE.MeshBasicMaterial({
     color: glowColor,
     transparent: true,
-    opacity: level.chamber.visualStyle === 'industrial' ? 0.7 : 0.92,
+    opacity: 0.9,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
