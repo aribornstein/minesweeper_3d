@@ -173,6 +173,7 @@ export class ViewModel {
   private readonly heldFlag: THREE.Group;
   private readonly heldHand: THREE.Group;
   private readonly gripCalibrationEnabled = gripCalibrationEnabled();
+  private scannerStatusLed: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial> | undefined;
   private readonly gripAnchorMarker = new THREE.Mesh(
     new THREE.SphereGeometry(0.014, 12, 8),
     new THREE.MeshBasicMaterial({ color: '#31d7ff', depthTest: false, depthWrite: false, transparent: true, opacity: 0.82 }),
@@ -218,6 +219,12 @@ export class ViewModel {
     this.flagThrowTimer = Math.max(0, this.flagThrowTimer - delta);
     const bob = Math.sin(this.elapsed * 2.6) * 0.018;
     this.scannerGroup.position.y = -0.49 + bob;
+    if (this.scannerStatusLed) {
+      // Heartbeat blink: short bright pulse every ~0.4s.
+      const blinkPhase = (this.elapsed * 2.4) % 1;
+      const blink = blinkPhase < 0.22 ? 1 : 0.18;
+      (this.scannerStatusLed.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.6 + blink * 1.6;
+    }
     const throwProgress = this.flagThrowTimer > 0 ? 1 - this.flagThrowTimer / 0.45 : 0;
     const thrust = Math.sin(Math.min(throwProgress, 1) * Math.PI);
     this.remoteGroup.position.y = this.remoteRestY - bob * 0.7 + thrust * 0.06;
@@ -285,6 +292,7 @@ export class ViewModel {
       new THREE.SphereGeometry(0.035, 20, 12),
       new THREE.MeshStandardMaterial({ color: '#2ad4ff', emissive: '#2ad4ff', emissiveIntensity: 1.6, roughness: 0.22, metalness: 0.2 }),
     );
+    this.scannerStatusLed = statusLed;
 
     bezel.position.set(0, 0.04, 0.072);
     screen.position.z = 0.095;
@@ -298,6 +306,10 @@ export class ViewModel {
     statusLed.position.set(0.28, 0.39, 0.1);
 
     this.scannerGroup.add(body, bezel, screen, glass, topRidge, bottomLight, grip, sideRail, statusLed, ...this.createScannerScrews());
+    // Cyan ambient glow projecting forward from the scanner, so nearby tiles read as lit by the device.
+    const scannerGlow = new THREE.PointLight('#7fe7ff', 0.85, 3.2, 1.8);
+    scannerGlow.position.set(0, 0.08, 0.18);
+    this.scannerGroup.add(scannerGlow);
 
     for (let fingerIndex = 0; fingerIndex < 4; fingerIndex += 1) {
       const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.045, 0.28, 8, 16), gloveMaterial);

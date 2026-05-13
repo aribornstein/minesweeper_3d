@@ -118,6 +118,7 @@ export class Game {
   private rollingFrameMs = 16.6;
   private adaptiveTimer = 0;
   private pendingMineReveals: TileState[] = [];
+  private environmentElapsed = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.quality = detectQualityTier();
@@ -152,6 +153,8 @@ export class Game {
       this.lutPass = new LUTPass({ lut: createCinematicLut(), intensity: 0.85 });
       this.composer.addPass(this.lutPass);
       this.vignettePass = new ShaderPass(createVignetteShader());
+      this.vignettePass.material.uniforms.intensity.value = 0.52;
+      this.vignettePass.material.uniforms.softness.value = 0.6;
       this.composer.addPass(this.vignettePass);
     }
     if (this.quality.enableSmaa) {
@@ -219,6 +222,12 @@ export class Game {
     }
     this.tileGrid.animate(delta);
     this.effects.update(delta);
+    if (this.levelEnvironment.animators.length > 0) {
+      this.environmentElapsed += delta;
+      for (const animator of this.levelEnvironment.animators) {
+        animator(this.environmentElapsed);
+      }
+    }
     this.updateFlagThrows(delta);
     this.viewModel.update(
       delta,
@@ -840,14 +849,16 @@ export class Game {
     if (this.exitStatusLight?.material instanceof THREE.MeshStandardMaterial) {
       this.exitStatusLight.material.color.set(unlocked ? '#163726' : '#4a1813');
       this.exitStatusLight.material.emissive.set(unlocked ? '#0a5a2f' : '#5a0906');
-      this.exitStatusLight.material.emissiveIntensity = unlocked ? 0.95 : 0.7;
+      const target = unlocked ? 0.95 : 0.7;
+      this.exitStatusLight.material.emissiveIntensity = target;
+      this.exitStatusLight.material.userData.baseEmissive = target;
     }
   }
 
   private applyRenderProfile(level: LevelDefinition): void {
-    this.bloomPass.strength = 0.22 + level.chamber.bloom * 0.28;
-    this.bloomPass.radius = level.chamber.visualStyle === 'highTech' ? 0.36 : 0.32;
-    this.bloomPass.threshold = level.chamber.visualStyle === 'industrial' ? 0.9 : 0.86;
+    this.bloomPass.strength = 0.22 + level.chamber.bloom * 0.22;
+    this.bloomPass.radius = level.chamber.visualStyle === 'highTech' ? 0.28 : 0.24;
+    this.bloomPass.threshold = level.chamber.visualStyle === 'industrial' ? 0.88 : 0.86;
     this.renderer.toneMappingExposure = level.chamber.visualStyle === 'clean' ? 0.68 : 0.62;
   }
 

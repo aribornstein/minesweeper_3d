@@ -26,11 +26,14 @@ export type SceneParts = {
   levelEnvironment: LevelEnvironment;
 } & LevelEnvironment;
 
+export type EnvironmentAnimator = (elapsedSeconds: number) => void;
+
 export type LevelEnvironment = {
   group: THREE.Group;
   exitDoor: THREE.Group;
   exitGlow: THREE.PointLight;
   alarmLight: THREE.PointLight;
+  animators: EnvironmentAnimator[];
 };
 
 export function createScene(level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): SceneParts {
@@ -60,13 +63,28 @@ export function createScene(level: LevelDefinition, quality: QualitySettings = D
   rimLight.position.set(-5, 3.2, -4.2);
   scene.add(rimLight);
 
-  const boardSpot = new THREE.SpotLight(level.chamber.light, level.chamber.visualStyle === 'industrial' ? 0.9 : 0.72, 20, Math.PI / 5.8, 0.68, 1.6);
+  // Dominant motivated key light: a single bright overhead beam pooling on the playable path.
+  const boardSpot = new THREE.SpotLight(level.chamber.light, level.chamber.visualStyle === 'industrial' ? 2.0 : 1.8, 22, Math.PI / 7.2, 0.5, 1.3);
   boardSpot.position.set(0, 4.25, 2.4);
   boardSpot.target.position.set(0, 0.05, -0.7);
   boardSpot.castShadow = quality.enableShadows;
   boardSpot.shadow.mapSize.set(Math.min(1024, quality.shadowMapSize), Math.min(1024, quality.shadowMapSize));
   boardSpot.shadow.bias = -0.00012;
   scene.add(boardSpot, boardSpot.target);
+
+  // Three path SpotLights pooling light across the playable cells: gives the bright center / dark corners feel.
+  if (quality.tier !== 'low') {
+    const pathDepth = level.depth * TILE_SIZE;
+    for (let i = 0; i < 3; i += 1) {
+      const t = i / 2;
+      const pathZ = -pathDepth / 2 + pathDepth * (0.2 + t * 0.6);
+      const pathSpot = new THREE.SpotLight(level.chamber.light, 0.28, 12, Math.PI / 5.4, 0.7, 1.6);
+      pathSpot.position.set(0, 3.7, pathZ);
+      pathSpot.target.position.set(0, 0.05, pathZ);
+      pathSpot.castShadow = false;
+      scene.add(pathSpot, pathSpot.target);
+    }
+  }
 
   const levelEnvironment = createLevelEnvironment(level, quality);
   scene.add(levelEnvironment.group);
@@ -77,6 +95,7 @@ export function createScene(level: LevelDefinition, quality: QualitySettings = D
 export function createLevelEnvironment(level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): LevelEnvironment {
   const group = new THREE.Group();
   group.name = 'ProceduralLevelEnvironment';
+  const animators: EnvironmentAnimator[] = [];
 
   addExteriorVista(group, level);
 
@@ -89,6 +108,13 @@ export function createLevelEnvironment(level: LevelDefinition, quality: QualityS
   exitGlow.position.set(exitPosition.x, 1.8, exitPosition.z - 0.65);
   group.add(exitGlow);
 
+  // Focused door SpotLight, projecting from inside the chamber back toward the door so the focal area pools light.
+  const doorSpot = new THREE.SpotLight(level.chamber.light, 1.4, 14, Math.PI / 4.4, 0.55, 1.4);
+  doorSpot.position.set(exitPosition.x, 3.2, exitPosition.z + 3.4);
+  doorSpot.target.position.set(exitPosition.x, 1.4, exitPosition.z - 0.4);
+  doorSpot.castShadow = false;
+  group.add(doorSpot, doorSpot.target);
+
   const floor = new THREE.Mesh(
     new RoundedBoxGeometry(level.width * TILE_SIZE + 5.2, 0.22, level.depth * TILE_SIZE + 5.8, 3, 0.08),
     createIndustrialMaterial(level.chamber.floor, 0.44, 0.6, 'floor', 4, 5),
@@ -98,19 +124,21 @@ export function createLevelEnvironment(level: LevelDefinition, quality: QualityS
   group.add(floor);
 
   addFloorRails(group, level);
-  addFloorLightStrips(group, level, quality);
+  addFloorLightStrips(group, level, quality, animators);
   addWalls(group, level, quality);
-  addLayoutDressing(group, level);
+  addLayoutDressing(group, level, animators);
   addCeilingPanels(group, level, quality);
   addOverheadBeams(group, level, quality);
-  addTrainingPanels(group, level);
+  addTrainingPanels(group, level, animators);
   addThemeDecals(group, level);
+  addWallGreebles(group, level);
+  addDepthHaze(group, level, quality);
 
-  const exitDoor = createExitDoor(level);
+  const exitDoor = createExitDoor(level, animators);
   group.add(exitDoor);
   prepareObjectForPbr(group);
 
-  return { group, exitDoor, exitGlow, alarmLight };
+  return { group, exitDoor, exitGlow, alarmLight, animators };
 }
 
 function createChamberSkyTexture(level: LevelDefinition): THREE.CanvasTexture {
@@ -247,7 +275,7 @@ function addFloorRails(target: THREE.Object3D, level: LevelDefinition): void {
   });
 }
 
-function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): void {
+function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY, animators?: EnvironmentAnimator[]): void {
   const railDepth = level.depth * TILE_SIZE + 3.2;
   const laneWidth = level.width * TILE_SIZE + 3.1;
   const stripMaterial = new THREE.MeshBasicMaterial({
@@ -269,24 +297,27 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, qua
   });
 
   // Concept 1's signature: warm orange light strips between every tile row.
-  const interRowMaterial = new THREE.MeshBasicMaterial({
-    color: level.chamber.warning,
-    transparent: true,
-    opacity: 1.0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+  const interRowMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(level.chamber.warning),
+    emissiveIntensity: 2.6,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
   });
-  const interRowCoreMaterial = new THREE.MeshBasicMaterial({
-    color: '#fff1d0',
-    transparent: true,
-    opacity: 1.0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+  const interRowCoreMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color('#fff1d0'),
+    emissiveIntensity: 3.4,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
   });
   const interRowChannelMaterial = createIndustrialMaterial(level.chamber.wallDark, 0.72, 0.34, 'dark-panel', 1, 1);
   const stripLength = level.width * TILE_SIZE + 0.9;
   const tilePitch = TILE_SIZE;
   const stripStride = quality.rectAreaLightDensity >= 0.9 ? 1 : quality.rectAreaLightDensity >= 0.5 ? 2 : 4;
+  const stripMeshes: { strip: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>; core: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>; light: THREE.RectAreaLight | undefined; rowIndex: number }[] = [];
   for (let rowIndex = 0; rowIndex < level.depth - 1; rowIndex += 1) {
     const z = (rowIndex - (level.depth - 1) / 2) * tilePitch + tilePitch / 2;
     const channel = new THREE.Mesh(new RoundedBoxGeometry(stripLength, 0.06, 0.28, 1, 0.018), interRowChannelMaterial);
@@ -302,16 +333,41 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, qua
     core.position.set(0, 0.074, z);
     target.add(core);
 
-    const interRowLight = new THREE.RectAreaLight(level.chamber.warning, 1.6, stripLength - 0.2, 0.14);
-    interRowLight.position.set(0, 0.12, z);
-    interRowLight.rotation.x = -Math.PI / 2;
+    let interRowLight: THREE.RectAreaLight | undefined;
     if (rowIndex % stripStride === 0) {
+      interRowLight = new THREE.RectAreaLight(level.chamber.warning, 1.4, stripLength - 0.2, 0.14);
+      interRowLight.position.set(0, 0.12, z);
+      interRowLight.rotation.x = -Math.PI / 2;
       target.add(interRowLight);
     }
+    stripMeshes.push({ strip, core, light: interRowLight, rowIndex });
+  }
+
+  // Slow traveling pulse through the inter-row strips: a brightness wave sweeps forward and loops.
+  if (animators && stripMeshes.length > 0) {
+    const rowCount = stripMeshes.length;
+    const baseStripEmissive = 2.6;
+    const baseCoreEmissive = 3.4;
+    const baseLightIntensity = 1.0;
+    animators.push((elapsed) => {
+      const wave = (elapsed * 0.6) % (rowCount + 2);
+      for (let i = 0; i < rowCount; i += 1) {
+        const distance = Math.abs(i - wave);
+        const wrapped = Math.min(distance, rowCount + 2 - distance);
+        const pulse = Math.max(0, 1 - wrapped * 0.75);
+        const strength = 0.7 + pulse * 0.8;
+        const item = stripMeshes[i];
+        item.strip.material.emissiveIntensity = baseStripEmissive * strength;
+        item.core.material.emissiveIntensity = baseCoreEmissive * strength;
+        if (item.light) {
+          item.light.intensity = baseLightIntensity * (0.8 + pulse * 0.55);
+        }
+      }
+    });
   }
 }
 
-function addLayoutDressing(target: THREE.Object3D, level: LevelDefinition): void {
+function addLayoutDressing(target: THREE.Object3D, level: LevelDefinition, animators?: EnvironmentAnimator[]): void {
   const width = level.width * TILE_SIZE + 5.2;
   const depth = level.depth * TILE_SIZE + 5.8;
   const sideDistance = width / 2 - 1.08;
@@ -321,13 +377,15 @@ function addLayoutDressing(target: THREE.Object3D, level: LevelDefinition): void
 
   if (level.layoutVariant === 'narrow') {
     [-1, 1].forEach((side) => {
-      const bulkhead = new THREE.Mesh(new RoundedBoxGeometry(0.36, 1.05, depth - 2.2, 4, 0.045), propMaterial);
-      const guide = new THREE.Mesh(new RoundedBoxGeometry(0.04, 0.045, depth - 2.6, 1, 0.008), hazardMaterial.clone());
-      bulkhead.position.set(side * sideDistance, 0.54, -0.2);
-      guide.position.set(side * (sideDistance - 0.2), 1.12, -0.2);
+      const bulkhead = new THREE.Mesh(new RoundedBoxGeometry(0.46, 1.42, depth - 2.2, 4, 0.05), propMaterial);
+      const guide = new THREE.Mesh(new RoundedBoxGeometry(0.05, 0.055, depth - 2.6, 1, 0.012), hazardMaterial.clone());
+      const topGuide = new THREE.Mesh(new RoundedBoxGeometry(0.04, 0.04, depth - 2.6, 1, 0.01), hazardMaterial.clone());
+      bulkhead.position.set(side * sideDistance, 0.72, -0.2);
+      guide.position.set(side * (sideDistance - 0.24), 1.48, -0.2);
+      topGuide.position.set(side * (sideDistance - 0.18), 1.46, -0.2);
       bulkhead.castShadow = true;
       bulkhead.receiveShadow = true;
-      target.add(bulkhead, guide);
+      target.add(bulkhead, guide, topGuide);
     });
   }
 
@@ -362,13 +420,46 @@ function addLayoutDressing(target: THREE.Object3D, level: LevelDefinition): void
   }
 
   if (level.layoutVariant === 'lowVisibility') {
-    const mistMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.sideLight, transparent: true, opacity: 0.026, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
-    [-0.24, 0.24].forEach((offset) => {
-      const mist = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.56, 0.78), mistMaterial.clone());
-      mist.position.set(0, 0.76, offset * depth);
-      mist.rotation.x = -Math.PI / 2 + 0.05;
+    const mistMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.sideLight, transparent: true, opacity: 0.08, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    for (let pass = 0; pass < 3; pass += 1) {
+      const z = (pass - 1) * depth * 0.28;
+      const mist = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.72, 1.6), mistMaterial.clone());
+      mist.position.set(0, 0.96 + pass * 0.18, z);
+      mist.rotation.x = -Math.PI / 2 + 0.04;
       target.add(mist);
+    }
+  }
+
+  if (level.layoutVariant === 'hazard') {
+    // Yellow caution chevrons along the room sides so the chamber reads as a danger zone.
+    const stripeMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.warning, transparent: true, opacity: 0.62, blending: THREE.AdditiveBlending, depthWrite: false });
+    [-1, 1].forEach((side) => {
+      for (let i = 0; i < 5; i += 1) {
+        const stripe = new THREE.Mesh(new RoundedBoxGeometry(0.42, 0.025, 0.085, 1, 0.01), stripeMaterial.clone());
+        const z = (i / 4 - 0.5) * (depth - 3.6);
+        stripe.position.set(side * (sideDistance - 0.12), 0.022, z);
+        stripe.rotation.y = side * 0.42;
+        target.add(stripe);
+      }
     });
+    // Two pulsing amber point lights flanking the chamber midpoint.
+    const hazardLights: THREE.PointLight[] = [];
+    [-1, 1].forEach((side) => {
+      const hazardLight = new THREE.PointLight(level.chamber.warning, 1.6, 6.2, 1.6);
+      hazardLight.position.set(side * (sideDistance - 0.4), 0.6, 0);
+      hazardLight.userData.side = side;
+      target.add(hazardLight);
+      hazardLights.push(hazardLight);
+    });
+    if (animators) {
+      animators.push((elapsed) => {
+        hazardLights.forEach((light) => {
+          const side = light.userData.side as number;
+          const pulse = 0.55 + Math.sin(elapsed * 2.6 + (side > 0 ? Math.PI : 0)) * 0.45;
+          light.intensity = 0.8 + pulse * 2.4;
+        });
+      });
+    }
   }
 }
 
@@ -459,12 +550,13 @@ function buildExtrudedSideWall(
     metalness: 0.32,
     envMapIntensity: 0.22,
   });
-  const glowMaterial = new THREE.MeshBasicMaterial({
-    color: glowColor,
-    transparent: true,
-    opacity: 0.58,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+  const glowMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(glowColor),
+    emissiveIntensity: 4.5,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
   });
   const trimAccent = new THREE.MeshStandardMaterial({
     color: '#1f2a32',
@@ -528,13 +620,13 @@ function buildExtrudedSideWall(
       glowMaterial.clone(),
     );
     dataLine.position.set(centerX - bayWidth * 0.36, bayCenterY, 0.108);
-    (dataLine.material as THREE.MeshBasicMaterial).opacity = 0.34;
+    (dataLine.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.4;
     group.add(dataLine);
 
     if ((bayIndex + level.levelNumber) % 2 === 0 && quality.rectAreaLightDensity >= 0.5) {
       const bayLight = new THREE.RectAreaLight(
         glowColor,
-        level.chamber.visualStyle === 'industrial' ? 0.6 : 0.85,
+        level.chamber.visualStyle === 'industrial' ? 0.6 : 0.8,
         bayWidth - 0.3,
         0.06,
       );
@@ -559,15 +651,22 @@ function buildExtrudedSideWall(
   group.add(ceilingRail);
 
   // Continuous top light strip running the wall length (concept's hero cyan line).
+  const topStripMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(glowColor),
+    emissiveIntensity: 5.5,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
+  });
   const topLightStrip = new THREE.Mesh(
     new RoundedBoxGeometry(wallLength - 0.5, 0.032, 0.022, 1, 0.008),
-    glowMaterial.clone(),
+    topStripMaterial,
   );
-  (topLightStrip.material as THREE.MeshBasicMaterial).opacity = 0.72;
   topLightStrip.position.set(0, wallHeight - 0.36, thickness + 0.03);
   group.add(topLightStrip);
 
-  const topRectLight = new THREE.RectAreaLight(glowColor, level.chamber.visualStyle === 'industrial' ? 0.45 : 0.7, wallLength - 0.5, 0.04);
+  const topRectLight = new THREE.RectAreaLight(glowColor, level.chamber.visualStyle === 'industrial' ? 0.7 : 1.05, wallLength - 0.5, 0.04);
   topRectLight.position.set(0, wallHeight - 0.36, thickness + 0.05);
   topRectLight.lookAt(new THREE.Vector3(0, wallHeight - 0.36, thickness + 1));
   group.add(topRectLight);
@@ -575,12 +674,13 @@ function buildExtrudedSideWall(
   // Subtle warm under-rail amber accent like concept 1.
   const warmStrip = new THREE.Mesh(
     new RoundedBoxGeometry(wallLength - 0.6, 0.022, 0.018, 1, 0.006),
-    new THREE.MeshBasicMaterial({
-      color: level.chamber.warning,
-      transparent: true,
-      opacity: 0.34,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
+    new THREE.MeshStandardMaterial({
+      color: '#000000',
+      emissive: new THREE.Color(level.chamber.warning),
+      emissiveIntensity: 3.2,
+      roughness: 1,
+      metalness: 0,
+      toneMapped: false,
     }),
   );
   warmStrip.position.set(0, 0.34, thickness + 0.026);
@@ -643,7 +743,14 @@ function addObservationWindows(target: THREE.Object3D, level: LevelDefinition, w
   const bayMaterial = createIndustrialMaterial(level.chamber.wallDark, 0.72, 0.32, 'dark-panel', 0.9, 1.2);
   const insetMaterial = new THREE.MeshStandardMaterial({ color: '#090f13', roughness: 0.64, metalness: 0.34, envMapIntensity: 0.2 });
   const frameMaterial = createIndustrialMaterial(level.chamber.coolTrim, 0.42, 0.68, 'metal', 1, 1.2);
-  const glowMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false });
+  const glowMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight),
+    emissiveIntensity: 3.6,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
+  });
   const windowZ = -depth / 2 + 0.18;
   const exitOpeningX = tileWorldPosition(level, level.exitTile).x;
   const positions = [-width * 0.3, width * 0.3].filter((x) => Math.abs(x - exitOpeningX) > 1.9);
@@ -695,7 +802,14 @@ function addWallConduits(
   trimMaterial: THREE.Material,
 ): void {
   const cableMaterial = new THREE.MeshStandardMaterial({ color: '#070b0d', roughness: 0.48, metalness: 0.34, envMapIntensity: 0.38 });
-  const glowMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.warning, transparent: true, opacity: 0.44, blending: THREE.AdditiveBlending, depthWrite: false });
+  const glowMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(level.chamber.warning),
+    emissiveIntensity: 4.0,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
+  });
 
   [-1, 1].forEach((side) => {
     [-0.42, 0.22, 0.78].forEach((offset, cableIndex) => {
@@ -744,7 +858,7 @@ function addCeilingPanels(target: THREE.Object3D, level: LevelDefinition, qualit
     const diffuser = new THREE.Mesh(new RoundedBoxGeometry(width * 0.36, 0.024, 0.08, 1, 0.008), diffuserMaterial.clone());
     const leftDiffuser = new THREE.Mesh(new RoundedBoxGeometry(width * 0.18, 0.02, 0.052, 1, 0.006), diffuserMaterial.clone());
     const rightDiffuser = leftDiffuser.clone();
-    const panelLight = new THREE.RectAreaLight(level.chamber.light, level.chamber.visualStyle === 'industrial' ? 0.46 : 0.62, width * 0.36, 0.12);
+    const panelLight = new THREE.RectAreaLight(level.chamber.light, level.chamber.visualStyle === 'industrial' ? 0.4 : 0.55, width * 0.36, 0.12);
 
     recess.position.set(0, 3.94, z);
     diffuser.position.set(0, 3.91, z);
@@ -825,8 +939,22 @@ function addBackWallFocalArchitecture(
 ): void {
   const wallZ = -depth / 2 + 0.23;
   const exitX = tileWorldPosition(level, level.exitTile).x;
-  const lightMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.light, transparent: true, opacity: level.chamber.visualStyle === 'industrial' ? 0.44 : 0.62, blending: THREE.AdditiveBlending, depthWrite: false });
-  const diagnosticMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight, transparent: true, opacity: 0.34, blending: THREE.AdditiveBlending, depthWrite: false });
+  const lightMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(level.chamber.light),
+    emissiveIntensity: level.chamber.visualStyle === 'industrial' ? 3.2 : 5.0,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
+  });
+  const diagnosticMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight),
+    emissiveIntensity: 3.0,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
+  });
 
   const upperLintel = new THREE.Mesh(new RoundedBoxGeometry(3.86, 0.22, 0.22, 3, 0.035), coolTrimMaterial);
   const lowerThreshold = new THREE.Mesh(new RoundedBoxGeometry(3.28, 0.12, 0.18, 2, 0.018), trimMaterial);
@@ -890,12 +1018,21 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
   const exitOpeningX = tileWorldPosition(level, level.exitTile).x;
   const exitOpeningWidth = 3.2;
   const lineColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.light;
-  const lineMaterial = new THREE.MeshBasicMaterial({
-    color: lineColor,
-    transparent: true,
-    opacity: level.chamber.visualStyle === 'industrial' ? 0.34 : 0.5,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
+  const lineMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(lineColor),
+    emissiveIntensity: level.chamber.visualStyle === 'industrial' ? 3.4 : 4.6,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
+  });
+  const amberAccentMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(level.chamber.warning),
+    emissiveIntensity: 4.2,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
   });
 
   bandMeshes.push(
@@ -911,7 +1048,7 @@ function addWallBands(target: THREE.Object3D, level: LevelDefinition, width: num
     const x = side * (width / 2 - 0.22);
     const upperRail = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.11, depth - 0.85, 2, 0.025), coolTrimMaterial);
     const lowerRail = new THREE.Mesh(new RoundedBoxGeometry(0.13, 0.12, depth - 0.85, 2, 0.025), coolTrimMaterial);
-    const amberLine = new THREE.Mesh(new RoundedBoxGeometry(0.052, 0.045, depth * 0.72, 1, 0.01), trimMaterial);
+    const amberLine = new THREE.Mesh(new RoundedBoxGeometry(0.052, 0.045, depth * 0.72, 1, 0.01), amberAccentMaterial);
     const upperGlow = new THREE.Mesh(new RoundedBoxGeometry(0.026, 0.036, depth * 0.72, 1, 0.008), lineMaterial.clone());
     const lowerGlow = new THREE.Mesh(new RoundedBoxGeometry(0.024, 0.028, depth * 0.68, 1, 0.008), lineMaterial.clone());
 
@@ -1092,7 +1229,14 @@ function addSideWallModules(
         });
       }
 
-      const microPanelMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.light, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false });
+      const microPanelMaterial = new THREE.MeshStandardMaterial({
+        color: '#000000',
+        emissive: new THREE.Color(level.chamber.light),
+        emissiveIntensity: 3.2,
+        roughness: 1,
+        metalness: 0,
+        toneMapped: false,
+      });
       for (let statusIndex = 0; statusIndex < 3; statusIndex += 1) {
         const statusLed = new THREE.Mesh(new RoundedBoxGeometry(0.018, 0.12, 0.026, 1, 0.004), microPanelMaterial.clone());
         statusLed.position.set(side * -0.19, -0.42 + statusIndex * 0.16, -0.31);
@@ -1128,13 +1272,26 @@ function createWallLight(color: string): THREE.Group {
     new RoundedBoxGeometry(0.08, 0.46, 0.045, 2, 0.014),
     new THREE.MeshStandardMaterial({ color: '#0d1315', roughness: 0.48, metalness: 0.5, envMapIntensity: 0.34 }),
   );
+  // HDR emissive so the fixture actually crosses the bloom threshold after ACES tone mapping.
   const glow = new THREE.Mesh(
     new RoundedBoxGeometry(0.045, 0.36, 0.018, 2, 0.009),
-    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.58, blending: THREE.AdditiveBlending, depthWrite: false }),
+    new THREE.MeshStandardMaterial({
+      color: '#000000',
+      emissive: color,
+      emissiveIntensity: 5.5,
+      roughness: 1,
+      metalness: 0,
+      toneMapped: false,
+    }),
   );
-
   glow.position.z = 0.025;
   group.add(casing, glow);
+
+  // Tiny localized point light so the wall around the fixture actually catches a bit of spill.
+  const spill = new THREE.PointLight(color, 0.45, 0.85, 2.2);
+  spill.position.set(0, 0, 0.12);
+  group.add(spill);
+
   return group;
 }
 
@@ -1171,7 +1328,7 @@ function addOverheadBeams(target: THREE.Object3D, level: LevelDefinition, qualit
       target.add(shaft);
     }
 
-    const light = new THREE.RectAreaLight(level.chamber.light, 0.92, width * 0.55, 0.08);
+    const light = new THREE.RectAreaLight(level.chamber.light, 0.85, width * 0.55, 0.08);
     light.position.set(0, 3.67, positionZ);
     light.rotation.x = -Math.PI / 2;
     if (beamIndex % (quality.rectAreaLightDensity >= 0.9 ? 1 : quality.rectAreaLightDensity >= 0.5 ? 2 : 3) === 0) {
@@ -1180,7 +1337,7 @@ function addOverheadBeams(target: THREE.Object3D, level: LevelDefinition, qualit
   }
 }
 
-function addTrainingPanels(target: THREE.Object3D, level: LevelDefinition): void {
+function addTrainingPanels(target: THREE.Object3D, level: LevelDefinition, animators?: EnvironmentAnimator[]): void {
   const halfWidth = (level.width * TILE_SIZE + 5.2) / 2;
   const halfDepth = (level.depth * TILE_SIZE + 5.8) / 2;
   const panelTextColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : '#dff7ff';
@@ -1360,7 +1517,46 @@ function createExitPassage(wallMaterial: THREE.Material, floorMaterial: THREE.Ma
   return passage;
 }
 
-function createExitDoor(level: LevelDefinition): THREE.Group {
+function buildDoorPanelMesh(material: THREE.Material): THREE.Mesh {
+  // Authored silhouette: 1.72 wide, 2.55 tall, with chamfered top corners and a tiny recessed step at the foot.
+  const halfWidth = 0.86;
+  const halfHeight = 1.275;
+  const chamferDrop = 0.34;
+  const chamferIn = 0.22;
+  const footDrop = 0.08;
+  const footIn = 0.08;
+
+  const shape = new THREE.Shape();
+  shape.moveTo(-halfWidth + footIn, -halfHeight);
+  shape.lineTo(halfWidth - footIn, -halfHeight);
+  shape.lineTo(halfWidth, -halfHeight + footDrop);
+  shape.lineTo(halfWidth, halfHeight - chamferDrop);
+  shape.lineTo(halfWidth - chamferIn, halfHeight);
+  shape.lineTo(-halfWidth + chamferIn, halfHeight);
+  shape.lineTo(-halfWidth, halfHeight - chamferDrop);
+  shape.lineTo(-halfWidth, -halfHeight + footDrop);
+  shape.lineTo(-halfWidth + footIn, -halfHeight);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.34,
+    bevelEnabled: true,
+    bevelSize: 0.025,
+    bevelThickness: 0.02,
+    bevelSegments: 2,
+    steps: 1,
+  });
+  geometry.computeVertexNormals();
+  geometry.center();
+  if (geometry.attributes.uv && !geometry.attributes.uv2) {
+    geometry.setAttribute('uv2', geometry.attributes.uv.clone());
+  }
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+function createExitDoor(level: LevelDefinition, animators?: EnvironmentAnimator[]): THREE.Group {
   const group = new THREE.Group();
   const frameMaterial = createIndustrialMaterial(level.chamber.coolTrim, 0.44, 0.68, 'metal', 1.4, 1.2);
   const panelMaterial = createIndustrialMaterial(level.chamber.wallDark, 0.4, 0.5, 'door', 1.2, 2.2, '#260907');
@@ -1402,10 +1598,51 @@ function createExitDoor(level: LevelDefinition): THREE.Group {
   doorPanel.position.set(0, 1.23, -0.03);
   doorPanel.name = 'ExitDoorPanel';
 
-  const door = new THREE.Mesh(new RoundedBoxGeometry(1.72, 2.55, 0.34, 4, 0.045), panelMaterial);
-  door.castShadow = true;
-  door.receiveShadow = true;
+  const door = buildDoorPanelMesh(panelMaterial);
   doorPanel.add(door);
+
+  // Hinge-side bolt strip on the seam edge (right side as you look at it).
+  const hingeBoltMaterial = new THREE.MeshStandardMaterial({ color: '#3a4148', roughness: 0.32, metalness: 0.82, envMapIntensity: 0.6 });
+  const hingeBoltGeometry = new THREE.CylinderGeometry(0.028, 0.028, 0.05, 14);
+  for (let i = 0; i < 5; i += 1) {
+    const t = i / 4;
+    const bolt = new THREE.Mesh(hingeBoltGeometry, hingeBoltMaterial);
+    bolt.position.set(0.78, -1.0 + t * 2.0, 0.19);
+    bolt.rotation.x = Math.PI / 2;
+    bolt.castShadow = true;
+    doorPanel.add(bolt);
+  }
+
+  // Recessed handle plate just below center.
+  const handlePlate = new THREE.Mesh(
+    new RoundedBoxGeometry(0.46, 0.36, 0.05, 2, 0.018),
+    new THREE.MeshStandardMaterial({ color: '#16191c', roughness: 0.5, metalness: 0.62, envMapIntensity: 0.5 }),
+  );
+  handlePlate.position.set(-0.42, -0.35, 0.195);
+  handlePlate.castShadow = true;
+  doorPanel.add(handlePlate);
+  const handleBar = new THREE.Mesh(
+    new RoundedBoxGeometry(0.32, 0.06, 0.04, 1, 0.014),
+    trimMaterial,
+  );
+  handleBar.position.set(-0.42, -0.35, 0.225);
+  handleBar.castShadow = true;
+  doorPanel.add(handleBar);
+
+  // Small data port detail (read terminal) at lower right.
+  const dataPort = new THREE.Mesh(
+    new RoundedBoxGeometry(0.28, 0.16, 0.045, 1, 0.014),
+    new THREE.MeshStandardMaterial({ color: '#0a1115', roughness: 0.42, metalness: 0.4, envMapIntensity: 0.4 }),
+  );
+  dataPort.position.set(0.36, -0.96, 0.2);
+  dataPort.castShadow = true;
+  doorPanel.add(dataPort);
+  const dataPortGlow = new THREE.Mesh(
+    new RoundedBoxGeometry(0.22, 0.034, 0.02, 1, 0.008),
+    new THREE.MeshBasicMaterial({ color: level.chamber.sideLight, transparent: true, opacity: 0.78, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  dataPortGlow.position.set(0.36, -0.96, 0.225);
+  doorPanel.add(dataPortGlow);
 
   [-0.48, 0, 0.48].forEach((offsetY) => {
     const groove = new THREE.Mesh(new RoundedBoxGeometry(1.48, 0.035, 0.045, 2, 0.012), trimMaterial);
@@ -1428,6 +1665,20 @@ function createExitDoor(level: LevelDefinition): THREE.Group {
   statusInset.name = 'ExitDoorStatusLight';
   statusInset.position.set(0, 0.92, 0.22);
   doorPanel.add(statusInset);
+  group.add(doorPanel);
+
+  if (animators) {
+    // Slow heartbeat pulse on the door sensor: gentle 1.5s sine plus a short blip every cycle.
+    const baseMaterial = statusInset.material as THREE.MeshStandardMaterial;
+    baseMaterial.userData.baseEmissive = baseMaterial.emissiveIntensity;
+    animators.push((elapsed) => {
+      const base = (baseMaterial.userData.baseEmissive as number | undefined) ?? baseMaterial.emissiveIntensity;
+      const cycle = (elapsed % 1.5) / 1.5;
+      const heartbeat = 0.5 + Math.sin(cycle * Math.PI * 2) * 0.5;
+      const blip = cycle < 0.18 ? 1 : 0;
+      baseMaterial.emissiveIntensity = base * (0.55 + heartbeat * 0.55 + blip * 0.4);
+    });
+  }
   group.add(doorPanel);
 
   const header = createDoorHeader(level, trimMaterial, frameMaterial);
@@ -1470,7 +1721,17 @@ function createDoorHeader(level: LevelDefinition, trimMaterial: THREE.Material, 
   const inset = new THREE.Mesh(new RoundedBoxGeometry(1.54, 0.36, 0.06, 2, 0.018), bezelMaterial);
   const text = new THREE.Mesh(
     new THREE.PlaneGeometry(1.22, 0.24),
-    new THREE.MeshBasicMaterial({ map: createDoorHeaderTexture(level), transparent: true, depthWrite: false }),
+    new THREE.MeshStandardMaterial({
+      color: '#000000',
+      emissive: '#ffffff',
+      emissiveMap: createDoorHeaderTexture(level),
+      emissiveIntensity: 2.6,
+      roughness: 1,
+      metalness: 0,
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+    }),
   );
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.22, 0.24), glassMaterial);
   const topLight = new THREE.Mesh(new RoundedBoxGeometry(1.32, 0.026, 0.024, 1, 0.006), lightMaterial);
@@ -1540,7 +1801,17 @@ function createTextPanel(lines: string[], color: string, glowColor: string): THR
   const frameMaterial = new THREE.MeshStandardMaterial({ color: '#101820', roughness: 0.42, metalness: 0.64, envMapIntensity: 0.58 });
   const bezelMaterial = new THREE.MeshStandardMaterial({ color: '#05090d', roughness: 0.36, metalness: 0.52, envMapIntensity: 0.42 });
   const mountMaterial = new THREE.MeshStandardMaterial({ color: '#17232c', roughness: 0.68, metalness: 0.36, envMapIntensity: 0.28 });
-  const screenMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.DoubleSide });
+  // Wall monitor screen: use HDR emissive map so the screen content actually blooms after tone mapping.
+  const screenMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: '#ffffff',
+    emissiveMap: texture,
+    emissiveIntensity: 2.4,
+    roughness: 1,
+    metalness: 0,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
   const glassMaterial = new THREE.MeshPhysicalMaterial({
     color: glowColor,
     roughness: 0.08,
@@ -1552,7 +1823,14 @@ function createTextPanel(lines: string[], color: string, glowColor: string): THR
     envMapIntensity: 0.75,
     depthWrite: false,
   });
-  const glowMaterial = new THREE.MeshBasicMaterial({ color: glowColor, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false });
+  const glowMaterial = new THREE.MeshStandardMaterial({
+    color: '#000000',
+    emissive: new THREE.Color(glowColor),
+    emissiveIntensity: 3.2,
+    roughness: 1,
+    metalness: 0,
+    toneMapped: false,
+  });
 
   const wallMount = new THREE.Mesh(new RoundedBoxGeometry(3.1, 2.05, 0.08, 4, 0.04), mountMaterial);
   const outerFrame = new THREE.Mesh(new RoundedBoxGeometry(2.78, 1.72, 0.07, 4, 0.034), frameMaterial);
@@ -1692,6 +1970,129 @@ function createDoorHeaderTexture(level: LevelDefinition): THREE.CanvasTexture {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = TEXTURE_ANISOTROPY;
   return texture;
+}
+
+function addWallGreebles(target: THREE.Object3D, level: LevelDefinition): void {
+  const width = level.width * TILE_SIZE + 5.2;
+  const depth = level.depth * TILE_SIZE + 5.8;
+  const sideX = width / 2 - 0.22;
+  const exitX = tileWorldPosition(level, level.exitTile).x;
+  const exitOpeningHalfWidth = 1.7;
+
+  const trimMaterial = new THREE.MeshStandardMaterial({
+    color: level.chamber.coolTrim,
+    roughness: 0.34,
+    metalness: 0.78,
+    envMapIntensity: 0.62,
+  });
+  const pipeMaterial = new THREE.MeshStandardMaterial({
+    color: '#0e1418',
+    roughness: 0.46,
+    metalness: 0.46,
+    envMapIntensity: 0.38,
+  });
+  const boltMaterial = new THREE.MeshStandardMaterial({
+    color: '#444a4f',
+    roughness: 0.32,
+    metalness: 0.82,
+    envMapIntensity: 0.7,
+  });
+
+  // Service pipes along the bottom of each side wall.
+  [-1, 1].forEach((side) => {
+    const pipe = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.05, 0.05, depth - 0.6, 16),
+      pipeMaterial,
+    );
+    pipe.position.set(side * sideX, 0.42, 0);
+    pipe.rotation.x = Math.PI / 2;
+    pipe.castShadow = true;
+    pipe.receiveShadow = true;
+    target.add(pipe);
+
+    // Mounting brackets at intervals.
+    const bracketCount = clamp(Math.floor(depth / 1.7), 4, 9);
+    for (let i = 0; i < bracketCount; i += 1) {
+      const t = bracketCount === 1 ? 0.5 : i / (bracketCount - 1);
+      const z = (t - 0.5) * (depth - 1.4);
+      const bracket = new THREE.Mesh(
+        new RoundedBoxGeometry(0.14, 0.16, 0.08, 1, 0.018),
+        trimMaterial,
+      );
+      bracket.position.set(side * (sideX - 0.05), 0.42, z);
+      bracket.castShadow = true;
+      target.add(bracket);
+    }
+  });
+
+  // Bolt rows along the upper and lower wall band rails.
+  const boltGeometry = new THREE.CylinderGeometry(0.022, 0.022, 0.04, 12);
+  [-1, 1].forEach((side) => {
+    const x = side * (sideX - 0.04);
+    const boltCount = clamp(Math.floor(depth / 0.7), 6, 16);
+    for (let i = 0; i < boltCount; i += 1) {
+      const t = boltCount === 1 ? 0.5 : i / (boltCount - 1);
+      const z = (t - 0.5) * (depth - 0.9);
+      for (const y of [0.36, 3.28]) {
+        const bolt = new THREE.Mesh(boltGeometry, boltMaterial);
+        bolt.position.set(x, y, z);
+        bolt.rotation.z = Math.PI / 2;
+        bolt.castShadow = false;
+        target.add(bolt);
+      }
+    }
+  });
+
+  // Bolt row along the back wall under the lintel, skipping the door opening.
+  const backZ = -depth / 2 + 0.16;
+  const backBoltCount = clamp(Math.floor(width / 0.6), 8, 18);
+  for (let i = 0; i < backBoltCount; i += 1) {
+    const t = backBoltCount === 1 ? 0.5 : i / (backBoltCount - 1);
+    const x = (t - 0.5) * (width - 0.6);
+    if (Math.abs(x - exitX) < exitOpeningHalfWidth) continue;
+    const bolt = new THREE.Mesh(boltGeometry, boltMaterial);
+    bolt.position.set(x, 3.4, backZ + 0.05);
+    bolt.castShadow = false;
+    target.add(bolt);
+  }
+}
+
+function addDepthHaze(target: THREE.Object3D, level: LevelDefinition, quality: QualitySettings): void {
+  if (quality.tier === 'low') return;
+  const width = level.width * TILE_SIZE + 5.2;
+  const depth = level.depth * TILE_SIZE + 5.8;
+  const hazeColor = level.chamber.visualStyle === 'industrial' ? '#221208' : '#0a1620';
+
+  // Vertical wash plane sitting in front of the back wall: blends scene depth into a soft glow.
+  const backHazeMaterial = new THREE.MeshBasicMaterial({
+    color: hazeColor,
+    transparent: true,
+    opacity: 0.34,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+  const backHaze = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.92, 3.4), backHazeMaterial);
+  backHaze.position.set(0, 1.8, -depth / 2 + 0.6);
+  backHaze.renderOrder = 1;
+  target.add(backHaze);
+
+  // Subtle ambient floor haze running depth-wise.
+  const floorHazeMaterial = new THREE.MeshBasicMaterial({
+    color: hazeColor,
+    transparent: true,
+    opacity: 0.14,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+  const floorHaze = new THREE.Mesh(new THREE.PlaneGeometry(width * 0.84, depth * 0.66), floorHazeMaterial);
+  floorHaze.position.set(0, 0.12, -depth * 0.18);
+  floorHaze.rotation.x = -Math.PI / 2;
+  floorHaze.renderOrder = 1;
+  target.add(floorHaze);
 }
 
 function createIndustrialMaterial(

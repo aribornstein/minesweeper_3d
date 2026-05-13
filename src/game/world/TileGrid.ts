@@ -201,9 +201,14 @@ export class TileGrid {
     this.tiles.forEach((tile) => {
       const root = new THREE.Group();
       const colors = this.tileColors(tile);
+      // Subtle per-tile rim variation so the floor reads as imperfect cast metal panels.
+      const rimVariation = pseudoRandom(tile.x * 53 + tile.z * 71, this.level.levelNumber * 11);
+      const rimRoughness = 0.66 + rimVariation * 0.14;
+      const rimMetalness = 0.22 + rimVariation * 0.18;
+      const rimColor = new THREE.Color('#11191a').multiplyScalar(0.94 + rimVariation * 0.12);
       const rim = new THREE.Mesh(
         new RoundedBoxGeometry(TILE_SIZE - TILE_GAP + 0.08, 0.13, TILE_SIZE - TILE_GAP + 0.08, 3, 0.055),
-        new THREE.MeshStandardMaterial({ color: '#11191a', roughness: 0.72, metalness: 0.24, envMapIntensity: 0.35 }),
+        new THREE.MeshStandardMaterial({ color: rimColor, roughness: rimRoughness, metalness: rimMetalness, envMapIntensity: 0.35 }),
       );
       const mesh = new THREE.Mesh(
         new RoundedBoxGeometry(TILE_SIZE - TILE_GAP, 0.24, TILE_SIZE - TILE_GAP, 4, 0.055),
@@ -274,9 +279,9 @@ export class TileGrid {
       map: this.panelDetailTexture,
       roughnessMap: this.panelRoughnessTexture,
       normalMap: this.panelNormalTexture,
-      normalScale: new THREE.Vector2(0.045, 0.045),
+      normalScale: new THREE.Vector2(0.085, 0.085),
       aoMap: this.panelAoTexture,
-      aoMapIntensity: 0.24,
+      aoMapIntensity: 0.65,
       roughness,
       metalness,
       envMapIntensity: 0.28,
@@ -314,23 +319,34 @@ export class TileGrid {
   }
 
   private tileColors(tile: TileState): { base: THREE.Color; inset: THREE.Color; emissive: THREE.Color } {
-    const emissive = new THREE.Color('#000000');
     const variation = 0.94 + pseudoRandom(tile.x * 17 + tile.z * 31, this.level.levelNumber * 13) * 0.1;
     const vary = (color: THREE.Color): THREE.Color => color.clone().multiplyScalar(variation);
 
     if (tile.flagged) {
-      return { base: vary(COLORS.flaggedTile), inset: vary(new THREE.Color('#d75a41')), emissive: new THREE.Color('#310908') };
+      return { base: vary(COLORS.flaggedTile), inset: vary(new THREE.Color('#e76346')), emissive: new THREE.Color('#5e1410') };
     }
 
     if (tile.revealed && tile.hasMine) {
-      return { base: vary(new THREE.Color('#46201d')), inset: vary(new THREE.Color('#7a1f18')), emissive: new THREE.Color('#3c0907') };
+      return { base: vary(new THREE.Color('#52221e')), inset: vary(new THREE.Color('#8a221a')), emissive: new THREE.Color('#4e0a08') };
     }
 
     if (tile.revealed) {
-      return { base: vary(COLORS.safeTile), inset: vary(COLORS.safeTileInset), emissive };
+      // Slightly brighter and cleaner so cleared cells visually pop vs unknown.
+      const cleaned = vary(COLORS.safeTile.clone().multiplyScalar(1.08));
+      const cleanedInset = vary(COLORS.safeTileInset.clone().multiplyScalar(1.04));
+      // Route-hint tiles get a soft cyan/warm path emissive to read as the safe corridor.
+      let accent: THREE.Color;
+      if (tile.isRouteHint && !tile.hasMine) {
+        accent = this.level.chamber.visualStyle === 'industrial'
+          ? new THREE.Color('#3a2412')
+          : new THREE.Color('#102132');
+      } else {
+        accent = this.level.chamber.visualStyle === 'industrial' ? new THREE.Color('#1d1208') : new THREE.Color('#08101a');
+      }
+      return { base: cleaned, inset: cleanedInset, emissive: accent };
     }
 
-    return { base: vary(COLORS.unknownTile), inset: vary(COLORS.unknownTileInset), emissive };
+    return { base: vary(COLORS.unknownTile), inset: vary(COLORS.unknownTileInset), emissive: new THREE.Color('#000000') };
   }
 
   private createPanelBolts(): THREE.Object3D[] {
