@@ -369,84 +369,60 @@ export class TileGrid {
   }
 
   private createMine(): THREE.Object3D {
+    const cache = getMineAssets();
     const mine = new THREE.Group();
     mine.userData.kind = 'mine';
-    const body = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.28, 2),
-      new THREE.MeshStandardMaterial({ color: COLORS.mine, emissive: '#180000', emissiveIntensity: 0.45, roughness: 0.38, metalness: 0.68, envMapIntensity: 0.72 }),
-    );
+
+    const body = new THREE.Mesh(cache.bodyGeometry, cache.bodyMaterial);
     body.position.y = 0.36;
+    body.castShadow = false;
+    body.userData.shared = true;
     mine.add(body);
 
     for (let i = 0; i < 12; i += 1) {
-      const spike = new THREE.Mesh(
-        new THREE.ConeGeometry(0.048, 0.25, 10),
-        new THREE.MeshStandardMaterial({ color: COLORS.mine, roughness: 0.36, metalness: 0.58, envMapIntensity: 0.62 }),
-      );
+      const spike = new THREE.Mesh(cache.spikeGeometry, cache.spikeMaterial);
       const angle = (i / 12) * Math.PI * 2;
       spike.position.set(Math.cos(angle) * 0.3, 0.36, Math.sin(angle) * 0.3);
       spike.rotation.z = Math.PI / 2;
       spike.rotation.y = -angle;
-      spike.castShadow = true;
+      spike.castShadow = false;
+      spike.userData.shared = true;
       mine.add(spike);
     }
 
-    const belt = new THREE.Mesh(
-      new THREE.TorusGeometry(0.3, 0.012, 8, 48),
-      new THREE.MeshStandardMaterial({ color: '#2a2a2a', roughness: 0.34, metalness: 0.72, envMapIntensity: 0.7 }),
-    );
+    const belt = new THREE.Mesh(cache.beltGeometry, cache.beltMaterial);
     belt.position.y = 0.36;
     belt.rotation.x = Math.PI / 2;
-    const sensor = new THREE.Mesh(
-      new THREE.SphereGeometry(0.045, 20, 12),
-      new THREE.MeshStandardMaterial({ color: COLORS.alarm, emissive: COLORS.alarm, emissiveIntensity: 1.4, roughness: 0.24, metalness: 0.2 }),
-    );
+    belt.userData.shared = true;
+    const sensor = new THREE.Mesh(cache.sensorGeometry, cache.sensorMaterial);
     sensor.position.set(0, 0.5, 0.2);
-    body.castShadow = true;
+    sensor.userData.shared = true;
     mine.add(belt, sensor);
 
     return mine;
   }
 
   private createNumberLabel(number: number): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> {
-    const canvas = document.createElement('canvas');
-    canvas.width = 256;
-    canvas.height = 256;
-    const context = canvas.getContext('2d');
-
-    if (!context) {
-      throw new Error('Could not create number label context.');
-    }
-
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.font = 'bold 170px system-ui';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.lineWidth = 14;
-    context.strokeStyle = '#172016';
-    context.fillStyle = number > 2 ? '#c43b2f' : number === 2 ? '#2d8e42' : '#1e4ac9';
-    context.strokeText(String(number), 128, 138);
-    context.fillText(String(number), 128, 138);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = TEXTURE_ANISOTROPY;
-    const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide });
-    const label = new THREE.Mesh(new THREE.PlaneGeometry(0.92, 0.92), material);
+    const material = getNumberLabelMaterial(number);
+    const label = new THREE.Mesh(getNumberLabelGeometry(), material);
     label.rotation.x = -Math.PI / 2;
     label.position.y = 0.31;
+    label.userData.shared = true;
     return label;
   }
 
   private disposeLabel(label: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>): void {
-    label.geometry.dispose();
-    label.material.map?.dispose();
-    label.material.dispose();
+    // Number geometry & material are shared module-level resources; skip disposal.
+    if (!label.userData.shared) {
+      label.geometry.dispose();
+      label.material.map?.dispose();
+      label.material.dispose();
+    }
   }
 
   private disposeObject(object: THREE.Object3D): void {
     object.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
+      if (child instanceof THREE.Mesh && !child.userData.shared) {
         child.geometry.dispose();
         const materials = Array.isArray(child.material) ? child.material : [child.material];
         materials.forEach((material) => material.dispose());
@@ -628,4 +604,70 @@ function prepareGeometryForAo(geometry: THREE.BufferGeometry): void {
 function pseudoRandom(index: number, salt: number): number {
   const value = Math.sin(index * 12.9898 + salt * 78.233) * 43758.5453;
   return value - Math.floor(value);
+}
+
+type MineAssets = {
+  bodyGeometry: THREE.BufferGeometry;
+  spikeGeometry: THREE.BufferGeometry;
+  beltGeometry: THREE.BufferGeometry;
+  sensorGeometry: THREE.BufferGeometry;
+  bodyMaterial: THREE.MeshStandardMaterial;
+  spikeMaterial: THREE.MeshStandardMaterial;
+  beltMaterial: THREE.MeshStandardMaterial;
+  sensorMaterial: THREE.MeshStandardMaterial;
+};
+
+let mineAssets: MineAssets | undefined;
+
+function getMineAssets(): MineAssets {
+  if (!mineAssets) {
+    mineAssets = {
+      bodyGeometry: new THREE.IcosahedronGeometry(0.28, 2),
+      spikeGeometry: new THREE.ConeGeometry(0.048, 0.25, 10),
+      beltGeometry: new THREE.TorusGeometry(0.3, 0.012, 8, 48),
+      sensorGeometry: new THREE.SphereGeometry(0.045, 20, 12),
+      bodyMaterial: new THREE.MeshStandardMaterial({ color: COLORS.mine, emissive: '#180000', emissiveIntensity: 0.45, roughness: 0.38, metalness: 0.68, envMapIntensity: 0.72 }),
+      spikeMaterial: new THREE.MeshStandardMaterial({ color: COLORS.mine, roughness: 0.36, metalness: 0.58, envMapIntensity: 0.62 }),
+      beltMaterial: new THREE.MeshStandardMaterial({ color: '#2a2a2a', roughness: 0.34, metalness: 0.72, envMapIntensity: 0.7 }),
+      sensorMaterial: new THREE.MeshStandardMaterial({ color: COLORS.alarm, emissive: COLORS.alarm, emissiveIntensity: 1.4, roughness: 0.24, metalness: 0.2 }),
+    };
+  }
+  return mineAssets;
+}
+
+let numberLabelGeometry: THREE.PlaneGeometry | undefined;
+const numberLabelMaterials = new Map<number, THREE.MeshBasicMaterial>();
+
+function getNumberLabelGeometry(): THREE.PlaneGeometry {
+  if (!numberLabelGeometry) {
+    numberLabelGeometry = new THREE.PlaneGeometry(0.92, 0.92);
+  }
+  return numberLabelGeometry;
+}
+
+function getNumberLabelMaterial(number: number): THREE.MeshBasicMaterial {
+  let material = numberLabelMaterials.get(number);
+  if (material) return material;
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Could not create number label context.');
+  }
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.font = 'bold 170px system-ui';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.lineWidth = 14;
+  context.strokeStyle = '#172016';
+  context.fillStyle = number > 2 ? '#c43b2f' : number === 2 ? '#2d8e42' : '#1e4ac9';
+  context.strokeText(String(number), 128, 138);
+  context.fillText(String(number), 128, 138);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = TEXTURE_ANISOTROPY;
+  material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  numberLabelMaterials.set(number, material);
+  return material;
 }

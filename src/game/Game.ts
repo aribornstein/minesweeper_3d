@@ -117,6 +117,7 @@ export class Game {
   private adaptiveResolutionScale = 1;
   private rollingFrameMs = 16.6;
   private adaptiveTimer = 0;
+  private pendingMineReveals: TileState[] = [];
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.quality = detectQualityTier();
@@ -228,6 +229,7 @@ export class Game {
     );
     this.animateExit(delta);
     this.updateCameraShake(delta);
+    this.flushPendingMineReveals();
     this.updateAdaptiveResolution(delta);
     this.composer.render();
   };
@@ -334,7 +336,7 @@ export class Game {
   private updateStepActivation(delta: number): void {
     this.stepActivationCooldown = Math.max(0, this.stepActivationCooldown - delta);
 
-    if (!this.stepActivationEnabled || this.phase !== 'playing') {
+    if (this.phase !== 'playing') {
       return;
     }
 
@@ -346,11 +348,14 @@ export class Game {
       return;
     }
 
-    if (tileKey === this.stepActivationTileKey || this.stepActivationCooldown > 0 || tile.flagged) {
+    if (tileKey === this.stepActivationTileKey || this.stepActivationCooldown > 0 || tile.flagged || tile.revealed) {
       return;
     }
 
-    if (!tile.revealed || tile.adjacentMines > 0) {
+    // Stepping onto a hidden mine always detonates it, regardless of input mode.
+    // Touch devices additionally treat the player's position as a reveal click for safe tiles
+    // so mobile players can advance without dragging a reticle.
+    if (tile.hasMine || this.stepActivationEnabled) {
       this.stepActivationTileKey = tileKey;
       this.stepActivationCooldown = STEP_ACTIVATION_COOLDOWN;
       this.activateTile(tile);
@@ -490,12 +495,37 @@ export class Game {
     this.phase = 'failed';
     this.player.deactivate();
     this.clearFlagThrows();
-    this.board.revealAllMines().forEach((mineTile) => this.tileGrid.updateTile(mineTile));
+    // Reveal the trigger mine immediately so the explosion ties to its tile;
+    // queue the rest radiating outward so we don't allocate dozens of meshes in one frame.
+    const allMines = this.board.revealAllMines();
+    const trigger = this.tileGrid.tileWorldPosition(tile);
+    const sorted = allMines.slice().sort((a, b) => {
+      const da = this.tileGrid.tileWorldPosition(a).distanceToSquared(trigger);
+      const db = this.tileGrid.tileWorldPosition(b).distanceToSquared(trigger);
+      return da - db;
+    });
+    const triggerMine = sorted.find((m) => m.x === tile.x && m.z === tile.z);
+    if (triggerMine) {
+      this.tileGrid.updateTile(triggerMine);
+    }
+    this.pendingMineReveals = sorted.filter((m) => m !== triggerMine);
     this.tileGrid.setRouteVisible(false);
     this.effects.triggerMineBlast(this.tileGrid.tileWorldPosition(tile));
     this.shakeRemaining = 0.95;
     this.alarmLight.intensity = 42;
     this.syncHud();
+  }
+
+  private flushPendingMineReveals(): void {
+    if (this.pendingMineReveals.length === 0) return;
+    // Reveal up to 3 mines per frame; spreads across ~7 frames worst case for big chambers.
+    const batchSize = 3;
+    for (let i = 0; i < batchSize && this.pendingMineReveals.length > 0; i += 1) {
+      const next = this.pendingMineReveals.shift();
+      if (next) {
+        this.tileGrid.updateTile(next);
+      }
+    }
   }
 
   private updateCameraShake(delta: number): void {
@@ -763,6 +793,7 @@ export class Game {
 
   private loadLevel(level: LevelDefinition, phase: GamePhase): void {
     this.clearFlagThrows();
+    this.pendingMineReveals = [];
     this.currentLevel = level;
     this.phase = phase;
     this.hoveredTile = undefined;
