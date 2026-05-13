@@ -258,7 +258,7 @@ export class Game {
     this.adaptiveTimer = 0;
     let next = this.adaptiveResolutionScale;
     if (this.rollingFrameMs > 26) {
-      next = Math.max(0.55, this.adaptiveResolutionScale - 0.08);
+      next = Math.max(0.75, this.adaptiveResolutionScale - 0.08);
     } else if (this.rollingFrameMs < 17 && this.adaptiveResolutionScale < 1) {
       next = Math.min(1, this.adaptiveResolutionScale + 0.05);
     }

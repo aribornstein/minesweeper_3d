@@ -43,9 +43,9 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, 'tier' | 'pixelRa
 };
 
 const PIXEL_RATIO_CAP: Record<QualityTier, number> = {
-  high: 2.25,
-  medium: 1.6,
-  low: 1.0,
+  high: 2.5,
+  medium: 2.0,
+  low: 1.5,
 };
 
 export function detectQualityTier(): QualitySettings {
