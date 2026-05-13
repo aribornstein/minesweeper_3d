@@ -24,12 +24,12 @@ export function createScene(level: LevelDefinition): SceneParts {
   RectAreaLightUniformsLib.init();
   const scene = new THREE.Scene();
   scene.background = createChamberSkyTexture(level);
-  scene.fog = new THREE.FogExp2(level.chamber.visualStyle === 'industrial' ? '#090706' : '#04080b', 0.01 + level.chamber.haze * 0.016);
+  scene.fog = new THREE.FogExp2(level.chamber.visualStyle === 'industrial' ? '#070504' : '#03060a', 0.022 + level.chamber.haze * 0.026);
 
-  const ambient = new THREE.HemisphereLight('#9fdcff', '#0c0b09', level.chamber.visualStyle === 'clean' ? 0.24 : 0.18);
+  const ambient = new THREE.HemisphereLight('#7fc8ee', '#080706', level.chamber.visualStyle === 'clean' ? 0.14 : 0.1);
   scene.add(ambient);
 
-  const keyLight = new THREE.DirectionalLight(level.chamber.light, level.chamber.visualStyle === 'highTech' ? 0.92 : 0.84);
+  const keyLight = new THREE.DirectionalLight(level.chamber.light, level.chamber.visualStyle === 'highTech' ? 0.62 : 0.5);
   keyLight.position.set(4.5, 9.8, 5.4);
   keyLight.castShadow = true;
   keyLight.shadow.mapSize.set(3072, 3072);
@@ -254,6 +254,45 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition): vo
     channel.receiveShadow = true;
     target.add(channel, strip);
   });
+
+  // Concept 1's signature: warm orange light strips between every tile row.
+  const interRowMaterial = new THREE.MeshBasicMaterial({
+    color: level.chamber.warning,
+    transparent: true,
+    opacity: 1.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const interRowCoreMaterial = new THREE.MeshBasicMaterial({
+    color: '#fff1d0',
+    transparent: true,
+    opacity: 1.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const interRowChannelMaterial = createIndustrialMaterial(level.chamber.wallDark, 0.72, 0.34, 'dark-panel', 1, 1);
+  const stripLength = level.width * TILE_SIZE + 0.9;
+  const tilePitch = TILE_SIZE;
+  for (let rowIndex = 0; rowIndex < level.depth - 1; rowIndex += 1) {
+    const z = (rowIndex - (level.depth - 1) / 2) * tilePitch + tilePitch / 2;
+    const channel = new THREE.Mesh(new RoundedBoxGeometry(stripLength, 0.06, 0.28, 1, 0.018), interRowChannelMaterial);
+    channel.position.set(0, 0.024, z);
+    channel.receiveShadow = true;
+    target.add(channel);
+
+    const strip = new THREE.Mesh(new RoundedBoxGeometry(stripLength - 0.2, 0.04, 0.14, 1, 0.014), interRowMaterial.clone());
+    strip.position.set(0, 0.058, z);
+    target.add(strip);
+
+    const core = new THREE.Mesh(new RoundedBoxGeometry(stripLength - 0.36, 0.03, 0.06, 1, 0.01), interRowCoreMaterial.clone());
+    core.position.set(0, 0.074, z);
+    target.add(core);
+
+    const interRowLight = new THREE.RectAreaLight(level.chamber.warning, 1.6, stripLength - 0.2, 0.14);
+    interRowLight.position.set(0, 0.12, z);
+    interRowLight.rotation.x = -Math.PI / 2;
+    target.add(interRowLight);
+  }
 }
 
 function addLayoutDressing(target: THREE.Object3D, level: LevelDefinition): void {
@@ -354,7 +393,7 @@ function buildExtrudedSideWall(
 
   const wallLength = depth;
   const wallHeight = 4.18;
-  const thickness = 0.18;
+  const thickness = 0.32;
   const bayCount = clamp(Math.floor(depth / 2.0), 4, 7);
   const bayWidth = (wallLength / bayCount) * 0.66;
   const bayHeight = wallHeight * 0.5;
@@ -419,24 +458,39 @@ function buildExtrudedSideWall(
 
   bayCenters.forEach((centerX, bayIndex) => {
     const inset = new THREE.Mesh(
-      new RoundedBoxGeometry(bayWidth - 0.08, bayHeight - 0.08, 0.08, 2, 0.022),
+      new RoundedBoxGeometry(bayWidth - 0.06, bayHeight - 0.06, 0.1, 2, 0.024),
       insetPanelMaterial.clone(),
     );
-    inset.position.set(centerX, bayCenterY, 0.04);
+    inset.position.set(centerX, bayCenterY, 0.05);
     inset.castShadow = false;
     inset.receiveShadow = true;
     group.add(inset);
 
+    // Picture-frame trim around each hole on the wall's front face.
     const frameTop = new THREE.Mesh(
-      new RoundedBoxGeometry(bayWidth + 0.04, 0.06, 0.05, 1, 0.012),
+      new RoundedBoxGeometry(bayWidth + 0.08, 0.05, 0.04, 1, 0.012),
       trimAccent.clone(),
     );
-    frameTop.position.set(centerX, bayCenterY + bayHeight / 2 + 0.02, thickness + 0.012);
+    frameTop.position.set(centerX, bayCenterY + bayHeight / 2 + 0.025, thickness + 0.008);
     group.add(frameTop);
-    const frameBottom = frameTop.clone();
-    frameBottom.material = trimAccent.clone();
-    frameBottom.position.y = bayCenterY - bayHeight / 2 - 0.02;
+    const frameBottom = new THREE.Mesh(
+      new RoundedBoxGeometry(bayWidth + 0.08, 0.05, 0.04, 1, 0.012),
+      trimAccent.clone(),
+    );
+    frameBottom.position.set(centerX, bayCenterY - bayHeight / 2 - 0.025, thickness + 0.008);
     group.add(frameBottom);
+    const frameLeft = new THREE.Mesh(
+      new RoundedBoxGeometry(0.05, bayHeight + 0.04, 0.04, 1, 0.012),
+      trimAccent.clone(),
+    );
+    frameLeft.position.set(centerX - bayWidth / 2 - 0.025, bayCenterY, thickness + 0.008);
+    group.add(frameLeft);
+    const frameRight = new THREE.Mesh(
+      new RoundedBoxGeometry(0.05, bayHeight + 0.04, 0.04, 1, 0.012),
+      trimAccent.clone(),
+    );
+    frameRight.position.set(centerX + bayWidth / 2 + 0.025, bayCenterY, thickness + 0.008);
+    group.add(frameRight);
 
     const lightBar = new THREE.Mesh(
       new RoundedBoxGeometry(bayWidth - 0.22, 0.045, 0.022, 1, 0.008),
@@ -684,6 +738,32 @@ function addCeilingPanels(target: THREE.Object3D, level: LevelDefinition): void 
     recess.castShadow = true;
     recess.receiveShadow = true;
     target.add(recess, diffuser, leftDiffuser, rightDiffuser, panelLight);
+  }
+
+  // Longitudinal structural beams: concept 1 has visible beams running toward the vanishing point.
+  const beamMaterial = createIndustrialMaterial(level.chamber.coolTrim, 0.5, 0.58, 'metal', 1.4, 2.4);
+  const beamCount = 3;
+  for (let beamIndex = 0; beamIndex < beamCount; beamIndex += 1) {
+    const x = beamCount === 1 ? 0 : (beamIndex / (beamCount - 1) - 0.5) * (width - 1.4);
+    const beam = new THREE.Mesh(new RoundedBoxGeometry(0.16, 0.18, depth - 0.4, 2, 0.028), beamMaterial);
+    beam.position.set(x, 3.86, 0);
+    beam.castShadow = true;
+    beam.receiveShadow = true;
+    target.add(beam);
+
+    // Thin glow line embedded in the side of the beam for concept-style accent.
+    const beamGlow = new THREE.Mesh(
+      new RoundedBoxGeometry(0.022, 0.022, depth - 0.6, 1, 0.006),
+      new THREE.MeshBasicMaterial({
+        color: level.chamber.sideLight,
+        transparent: true,
+        opacity: 0.42,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }),
+    );
+    beamGlow.position.set(x + 0.085, 3.78, 0);
+    target.add(beamGlow);
   }
 }
 
@@ -1082,12 +1162,12 @@ function addTrainingPanels(target: THREE.Object3D, level: LevelDefinition): void
   const halfDepth = (level.depth * TILE_SIZE + 5.8) / 2;
   const panelTextColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : '#dff7ff';
   const leftPanel = createTextPanel([level.name.toUpperCase(), level.chamber.label.toUpperCase(), '', `GRID ${level.width}x${level.depth}`, `MINES ${level.mines.length}`], panelTextColor, level.chamber.sideLight);
-  leftPanel.position.set(-halfWidth + 0.44, 2.0, -Math.min(halfDepth - 1.4, 3.9));
+  leftPanel.position.set(-halfWidth + 0.44, 2.85, -Math.min(halfDepth - 1.4, 3.9));
   leftPanel.rotation.y = Math.PI / 2;
   target.add(leftPanel);
 
   const rightPanel = createTextPanel([level.sector.toUpperCase(), 'RANDOMIZED MINES', '', 'SOLVE TO UNLOCK', 'WALK THROUGH EXIT'], panelTextColor, level.chamber.sideLight);
-  rightPanel.position.set(halfWidth - 0.44, 2.0, -Math.min(halfDepth - 1.4, 3.25));
+  rightPanel.position.set(halfWidth - 0.44, 2.85, -Math.min(halfDepth - 1.4, 3.25));
   rightPanel.rotation.y = -Math.PI / 2;
   target.add(rightPanel);
 }
@@ -1333,13 +1413,8 @@ function createExitDoor(level: LevelDefinition): THREE.Group {
 
   [-1, 1].forEach((side) => {
     const fixture = createDoorLightColumn(level);
-    fixture.position.set(side * 1.08, 1.7, 0.24);
+    fixture.position.set(side * 1.18, 1.42, 0.24);
     group.add(fixture);
-
-    const doorLight = new THREE.RectAreaLight(level.chamber.light, level.chamber.visualStyle === 'industrial' ? 0.85 : 1.15, 0.18, 1.55);
-    doorLight.position.set(side * 1.1, 1.7, 0.32);
-    doorLight.lookAt(new THREE.Vector3(side * 1.1, 1.7, 2.2));
-    group.add(doorLight);
   });
 
   [-1, 1].forEach((side) => {
@@ -1400,24 +1475,39 @@ function createDoorHeader(level: LevelDefinition, trimMaterial: THREE.Material, 
 
 function createDoorLightColumn(level: LevelDefinition): THREE.Group {
   const group = new THREE.Group();
-  const casingMaterial = new THREE.MeshStandardMaterial({ color: '#12181d', roughness: 0.48, metalness: 0.54, envMapIntensity: 0.32 });
+  const casingMaterial = new THREE.MeshStandardMaterial({ color: '#0d1216', roughness: 0.44, metalness: 0.58, envMapIntensity: 0.4 });
+  const glowColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.light;
   const glowMaterial = new THREE.MeshBasicMaterial({
-    color: level.chamber.light,
+    color: glowColor,
     transparent: true,
-    opacity: level.chamber.visualStyle === 'industrial' ? 0.48 : 0.7,
+    opacity: level.chamber.visualStyle === 'industrial' ? 0.7 : 0.92,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
   });
-  const casing = new THREE.Mesh(new RoundedBoxGeometry(0.18, 1.7, 0.09, 2, 0.018), casingMaterial);
-  const diffuser = new THREE.Mesh(new RoundedBoxGeometry(0.07, 1.42, 0.025, 1, 0.008), glowMaterial);
-  diffuser.position.z = 0.055;
-  group.add(casing, diffuser);
+  const casing = new THREE.Mesh(new RoundedBoxGeometry(0.26, 2.74, 0.14, 2, 0.025), casingMaterial);
+  const diffuser = new THREE.Mesh(new RoundedBoxGeometry(0.13, 2.5, 0.04, 1, 0.012), glowMaterial);
+  const innerCore = new THREE.Mesh(new RoundedBoxGeometry(0.058, 2.36, 0.03, 1, 0.01), glowMaterial.clone());
+  (innerCore.material as THREE.MeshBasicMaterial).color.set('#ffffff');
+  (innerCore.material as THREE.MeshBasicMaterial).opacity = 1.0;
+  (diffuser.material as THREE.MeshBasicMaterial).opacity = 1.0;
+  diffuser.position.z = 0.082;
+  innerCore.position.z = 0.098;
+  group.add(casing, diffuser, innerCore);
+
+  // Strong RectAreaLight from each door pillar, projecting forward into the chamber.
+  const columnLight = new THREE.RectAreaLight(glowColor, level.chamber.visualStyle === 'industrial' ? 2.2 : 3.0, 0.16, 2.5);
+  columnLight.position.set(0, 0, 0.14);
+  columnLight.lookAt(new THREE.Vector3(0, 0, 2));
+  group.add(columnLight);
+
   group.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.castShadow = true;
       child.receiveShadow = true;
     }
   });
+  diffuser.castShadow = false;
+  innerCore.castShadow = false;
   return group;
 }
 
@@ -1441,13 +1531,13 @@ function createTextPanel(lines: string[], color: string, glowColor: string): THR
   });
   const glowMaterial = new THREE.MeshBasicMaterial({ color: glowColor, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false });
 
-  const wallMount = new THREE.Mesh(new RoundedBoxGeometry(2.52, 1.72, 0.08, 4, 0.035), mountMaterial);
-  const outerFrame = new THREE.Mesh(new RoundedBoxGeometry(2.22, 1.42, 0.07, 4, 0.032), frameMaterial);
-  const innerBezel = new THREE.Mesh(new RoundedBoxGeometry(1.94, 1.14, 0.038, 3, 0.022), bezelMaterial);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.72, 0.94), screenMaterial);
-  const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.72, 0.94), glassMaterial);
-  const topRail = new THREE.Mesh(new RoundedBoxGeometry(2.06, 0.05, 0.04, 1, 0.012), glowMaterial.clone());
-  const lowerStatus = new THREE.Mesh(new RoundedBoxGeometry(0.46, 0.032, 0.035, 1, 0.008), glowMaterial.clone());
+  const wallMount = new THREE.Mesh(new RoundedBoxGeometry(3.1, 2.05, 0.08, 4, 0.04), mountMaterial);
+  const outerFrame = new THREE.Mesh(new RoundedBoxGeometry(2.78, 1.72, 0.07, 4, 0.034), frameMaterial);
+  const innerBezel = new THREE.Mesh(new RoundedBoxGeometry(2.48, 1.44, 0.038, 3, 0.024), bezelMaterial);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(2.22, 1.22), screenMaterial);
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(2.22, 1.22), glassMaterial);
+  const topRail = new THREE.Mesh(new RoundedBoxGeometry(2.6, 0.05, 0.04, 1, 0.012), glowMaterial.clone());
+  const lowerStatus = new THREE.Mesh(new RoundedBoxGeometry(0.58, 0.032, 0.035, 1, 0.008), glowMaterial.clone());
 
   wallMount.position.z = -0.035;
   outerFrame.position.z = 0.008;

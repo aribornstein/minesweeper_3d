@@ -256,7 +256,7 @@ export class TileGrid {
       hoverGlow.visible = false;
       const edgeLights = this.createTileEdgeLights();
       root.position.copy(this.tileWorldPosition(tile));
-      root.add(rim, mesh, inset, routeGlow, hoverGlow, ...edgeLights, ...this.createPanelBolts());
+      root.add(rim, mesh, inset, routeGlow, hoverGlow, ...edgeLights);
       this.group.add(root);
       this.interactiveMeshes.push(mesh);
       this.visuals.set(this.key(tile), { root, rimMesh: rim, tileMesh: mesh, insetMesh: inset, edgeLights, routeGlow, hoverGlow });

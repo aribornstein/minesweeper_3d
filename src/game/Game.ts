@@ -775,10 +775,10 @@ export class Game {
   }
 
   private applyRenderProfile(level: LevelDefinition): void {
-    this.bloomPass.strength = 0.16 + level.chamber.bloom * 0.22;
-    this.bloomPass.radius = level.chamber.visualStyle === 'highTech' ? 0.32 : 0.28;
-    this.bloomPass.threshold = level.chamber.visualStyle === 'industrial' ? 0.94 : 0.92;
-    this.renderer.toneMappingExposure = level.chamber.visualStyle === 'clean' ? 0.78 : 0.72;
+    this.bloomPass.strength = 0.22 + level.chamber.bloom * 0.28;
+    this.bloomPass.radius = level.chamber.visualStyle === 'highTech' ? 0.36 : 0.32;
+    this.bloomPass.threshold = level.chamber.visualStyle === 'industrial' ? 0.9 : 0.86;
+    this.renderer.toneMappingExposure = level.chamber.visualStyle === 'clean' ? 0.68 : 0.62;
   }
 
   private onResize = (): void => {

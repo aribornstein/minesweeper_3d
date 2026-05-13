@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import type { ChamberProfile, LayoutVariant, LevelDefinition, TileCoord } from './types';
 
 const FIRST_LEVEL_NUMBER = 1;
@@ -9,7 +10,7 @@ const STARTING_DENSITY = 0.1;
 const DENSITY_STEP = 0.014;
 const MAX_DENSITY = 0.24;
 
-const CHAMBER_PROFILES: ChamberProfile[] = [
+const BASE_PROFILES: ChamberProfile[] = [
   {
     label: 'Maintenance Bay',
     visualStyle: 'clean',
@@ -97,7 +98,7 @@ export function createProceduralLevel(levelNumber = FIRST_LEVEL_NUMBER, random: 
   const width = Math.min(MAX_WIDTH, FIRST_WIDTH + Math.ceil((normalizedLevel - 1) * 0.72));
   const depth = Math.min(MAX_DEPTH, FIRST_DEPTH + Math.ceil((normalizedLevel - 1) * 0.86));
   const mineDensity = Math.min(MAX_DENSITY, STARTING_DENSITY + (normalizedLevel - 1) * DENSITY_STEP);
-  const chamber = CHAMBER_PROFILES[(normalizedLevel - 1) % CHAMBER_PROFILES.length];
+  const chamber = createChamberForLevel(normalizedLevel);
   const layoutVariant = LAYOUT_VARIANTS[(normalizedLevel - 1) % LAYOUT_VARIANTS.length];
   const startTile = { x: Math.floor(width / 2), z: depth - 1 };
   const exitTile = { x: chooseExitColumn(width, startTile.x, normalizedLevel, random), z: 0 };
@@ -224,4 +225,83 @@ function clamp(value: number, min: number, max: number): number {
 
 function key(coord: TileCoord): string {
   return `${coord.x}:${coord.z}`;
+}
+
+const ARCHETYPE_LABEL_SUFFIXES: Record<number, string[]> = {
+  0: ['Maintenance Bay', 'Calibration Vault', 'Holding Bay', 'Telemetry Hall', 'Inspection Wing', 'Service Annex'],
+  1: ['Relay Gallery', 'Quantum Node', 'Synapse Span', 'Data Concourse', 'Spectrum Lab', 'Cascade Spire'],
+  2: ['Signal Foundry', 'Reactor Pit', 'Pressure Forge', 'Coolant Loop', 'Smelting Run', 'Slag Causeway'],
+  3: ['Survey Annex', 'Cartograph Bay', 'Pulse Atrium', 'Beacon Rotunda', 'Echo Plaza', 'Drift Observatory'],
+};
+
+const SECTOR_BLOCKS = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Sigma', 'Theta', 'Omega', 'Phi', 'Psi', 'Lambda'];
+
+function createChamberForLevel(levelNumber: number): ChamberProfile {
+  const archetypeIndex = levelNumber <= BASE_PROFILES.length
+    ? (levelNumber - 1) % BASE_PROFILES.length
+    : Math.floor(seededRandom(levelNumber, 11) * BASE_PROFILES.length);
+  const base = BASE_PROFILES[archetypeIndex];
+
+  // Level 1 stays untouched for deterministic identity (smoke test relies on it).
+  if (levelNumber === FIRST_LEVEL_NUMBER) {
+    return base;
+  }
+
+  const hueShift = (seededRandom(levelNumber, 23) - 0.5) * 0.14;
+  const lightnessShift = (seededRandom(levelNumber, 31) - 0.5) * 0.12;
+  const accentHueShift = (seededRandom(levelNumber, 43) - 0.5) * 0.22;
+  const warningHueShift = (seededRandom(levelNumber, 47) - 0.5) * 0.18;
+  const hazeVar = (seededRandom(levelNumber, 53) - 0.5) * 0.18;
+  const bloomVar = (seededRandom(levelNumber, 59) - 0.5) * 0.2;
+  const densityVar = (seededRandom(levelNumber, 67) - 0.5) * 0.24;
+  const stripeVar = Math.round((seededRandom(levelNumber, 71) - 0.5) * 1.8);
+  const lightVar = Math.round((seededRandom(levelNumber, 73) - 0.5) * 1.8);
+
+  return {
+    ...base,
+    label: deriveChamberLabel(levelNumber, archetypeIndex),
+    floor: shiftColor(base.floor, hueShift, -0.04 + lightnessShift * 0.5),
+    wall: shiftColor(base.wall, hueShift, lightnessShift * 0.5),
+    wallDark: shiftColor(base.wallDark, hueShift, -0.04 + lightnessShift * 0.3),
+    panel: shiftColor(base.panel, hueShift, lightnessShift * 0.4),
+    trim: shiftColor(base.trim, warningHueShift, lightnessShift * 0.3),
+    coolTrim: shiftColor(base.coolTrim, hueShift, lightnessShift * 0.3),
+    ceiling: shiftColor(base.ceiling, hueShift, lightnessShift * 0.4),
+    light: shiftColor(base.light, accentHueShift * 0.4, lightnessShift * 0.3),
+    sideLight: shiftColor(base.sideLight, accentHueShift, lightnessShift * 0.5),
+    warning: shiftColor(base.warning, warningHueShift, 0),
+    haze: clamp01(base.haze + hazeVar),
+    bloom: clamp01(base.bloom + bloomVar),
+    dressingDensity: clamp01(base.dressingDensity + densityVar),
+    stripeEvery: clamp(base.stripeEvery + stripeVar, 1, 5),
+    lightEvery: clamp(base.lightEvery + lightVar, 1, 6),
+  };
+}
+
+function deriveChamberLabel(levelNumber: number, archetypeIndex: number): string {
+  const variants = ARCHETYPE_LABEL_SUFFIXES[archetypeIndex] ?? [BASE_PROFILES[archetypeIndex].label];
+  const nameIndex = Math.floor(seededRandom(levelNumber, 97) * variants.length);
+  const sectorBlock = SECTOR_BLOCKS[Math.floor(seededRandom(levelNumber, 113) * SECTOR_BLOCKS.length)];
+  return `${variants[nameIndex]} ${sectorBlock}`;
+}
+
+function shiftColor(hex: string, hueShift: number, lightnessShift: number): string {
+  const color = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(
+    THREE.MathUtils.euclideanModulo(hsl.h + hueShift, 1),
+    THREE.MathUtils.clamp(hsl.s, 0, 1),
+    THREE.MathUtils.clamp(hsl.l + lightnessShift, 0.02, 0.96),
+  );
+  return `#${color.getHexString()}`;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function seededRandom(level: number, salt: number): number {
+  const value = Math.sin(level * 12.9898 + salt * 78.233 + 0.31) * 43758.5453;
+  return value - Math.floor(value);
 }
