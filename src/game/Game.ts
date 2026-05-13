@@ -14,7 +14,7 @@ import { MinesweeperBoard } from './systems/MinesweeperBoard';
 import { PlayerController } from './systems/PlayerController';
 import type { GamePhase, LevelDefinition, TileCoord, TileState } from './types';
 import { Effects } from './world/Effects';
-import { createFlagModel } from './world/FlagModel';
+import { createFlagModel, updateFlagModel } from './world/FlagModel';
 import { createLevelEnvironment, createScene, disposeLevelEnvironment, type LevelEnvironment } from './world/SceneFactory';
 import { detectQualityTier, type QualitySettings } from './world/quality';
 import { TileGrid } from './world/TileGrid';
@@ -589,6 +589,7 @@ export class Game {
       flagThrow.model.rotation.x = -0.9 + eased * 0.9;
       flagThrow.model.rotation.y += delta * 8;
       flagThrow.model.rotation.z = 0.45 - eased * 0.45;
+      updateFlagModel(flagThrow.model, delta);
 
       if (progress >= 1) {
         this.scene.remove(flagThrow.model);
@@ -1020,8 +1021,14 @@ function disposeObject(object: THREE.Object3D): void {
       return;
     }
 
-    child.geometry.dispose();
+    if (!child.userData.shared) {
+      child.geometry.dispose();
+    }
     const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((material) => material.dispose());
+    materials.forEach((material) => {
+      if (!material.userData.shared) {
+        material.dispose();
+      }
+    });
   });
 }

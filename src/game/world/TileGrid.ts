@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { COLORS, TILE_GAP, TILE_SIZE } from '../config';
 import type { LevelDefinition, TileCoord, TileState } from '../types';
-import { createFlagModel } from './FlagModel';
+import { createFlagModel, updateFlagModel } from './FlagModel';
 
 const TEXTURE_ANISOTROPY = 8;
 
@@ -137,7 +137,8 @@ export class TileGrid {
       if (visual.marker?.userData.kind === 'mine') {
         visual.marker.rotation.y += delta * 0.8;
       } else if (visual.marker?.userData.kind === 'flag') {
-        visual.marker.rotation.y = Math.sin(this.elapsed * 2.8) * 0.035;
+        updateFlagModel(visual.marker, delta);
+        visual.marker.rotation.y = Math.sin(this.elapsed * 1.8 + Number(visual.marker.userData.flagPhase ?? 0)) * 0.018;
       }
     });
   }
@@ -468,7 +469,11 @@ export class TileGrid {
       if (child instanceof THREE.Mesh && !child.userData.shared) {
         child.geometry.dispose();
         const materials = Array.isArray(child.material) ? child.material : [child.material];
-        materials.forEach((material) => material.dispose());
+        materials.forEach((material) => {
+          if (!material.userData.shared) {
+            material.dispose();
+          }
+        });
       }
     });
   }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { BoardProgress, GamePhase, ScannerMode, TileState } from '../types';
-import { createFlagModel } from './FlagModel';
+import { createFlagModel, updateFlagModel } from './FlagModel';
 import { applyFlagGripHandPose, createFlagGripHand, DEFAULT_FLAG_GRIP_HAND_POSE, type FlagGripHandPose, type QuaternionTuple } from './FlagGripHand';
 
 const SCREEN_SIZE = 1024;
@@ -219,6 +219,7 @@ export class ViewModel {
     this.flagThrowTimer = Math.max(0, this.flagThrowTimer - delta);
     const bob = Math.sin(this.elapsed * 2.6) * 0.018;
     this.scannerGroup.position.y = -0.49 + bob;
+    updateFlagModel(this.heldFlag, delta);
     if (this.scannerStatusLed) {
       // Heartbeat blink: short bright pulse every ~0.4s.
       const blinkPhase = (this.elapsed * 2.4) % 1;
