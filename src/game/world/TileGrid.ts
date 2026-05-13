@@ -210,8 +210,8 @@ export class TileGrid {
         this.createTileMaterial(colors.base, 0.46, 0.3),
       );
       const inset = new THREE.Mesh(
-        new RoundedBoxGeometry(TILE_SIZE - 0.32, 0.052, TILE_SIZE - 0.32, 3, 0.035),
-        this.createTileMaterial(colors.inset, 0.52, 0.24),
+        new RoundedBoxGeometry(TILE_SIZE - 0.32, 0.018, TILE_SIZE - 0.32, 3, 0.018),
+        this.createTileMaterial(colors.inset, 0.42, 0.34),
       );
       const routeGlow = new THREE.Mesh(
         new THREE.PlaneGeometry(TILE_SIZE - 0.42, TILE_SIZE - 0.42),
@@ -256,6 +256,10 @@ export class TileGrid {
       hoverGlow.visible = false;
       const edgeLights = this.createTileEdgeLights();
       root.position.copy(this.tileWorldPosition(tile));
+      // Micro jitter so adjacent plates don't read as a stamped grid.
+      const jitterSeed = pseudoRandom(tile.x * 73 + tile.z * 131, this.level.levelNumber * 19);
+      root.rotation.y = (jitterSeed - 0.5) * 0.018;
+      root.position.y += (pseudoRandom(tile.x * 17 + tile.z * 41, this.level.levelNumber * 7) - 0.5) * 0.006;
       root.add(rim, mesh, inset, routeGlow, hoverGlow, ...edgeLights);
       this.group.add(root);
       this.interactiveMeshes.push(mesh);

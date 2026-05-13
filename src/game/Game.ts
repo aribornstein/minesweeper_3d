@@ -5,6 +5,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { LUTPass } from 'three/examples/jsm/postprocessing/LUTPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { PLAYER_HEIGHT, RAYCAST_DISTANCE, TILE_SIZE } from './config';
@@ -15,6 +16,7 @@ import type { GamePhase, LevelDefinition, TileCoord, TileState } from './types';
 import { Effects } from './world/Effects';
 import { createFlagModel } from './world/FlagModel';
 import { createLevelEnvironment, createScene, disposeLevelEnvironment, type LevelEnvironment } from './world/SceneFactory';
+import { detectQualityTier, type QualitySettings } from './world/quality';
 import { TileGrid } from './world/TileGrid';
 import { ViewModel } from './world/ViewModel';
 import { Hud } from '../ui/Hud';
@@ -78,10 +80,12 @@ type FlagThrow = {
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly composer: EffectComposer;
-  private readonly gtaoPass: GTAOPass;
+  private readonly gtaoPass: GTAOPass | undefined;
   private readonly bloomPass: UnrealBloomPass;
-  private readonly lutPass: LUTPass;
-  private readonly smaaPass: SMAAPass;
+  private readonly lutPass: LUTPass | undefined;
+  private readonly smaaPass: SMAAPass | undefined;
+  private readonly vignettePass: ShaderPass | undefined;
+  private readonly quality: QualitySettings;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly clock = new THREE.Clock();
   private readonly raycaster = new THREE.Raycaster();
@@ -110,35 +114,49 @@ export class Game {
   private stepActivationCooldown = 0;
   private stepActivationTileKey: string | undefined;
   private readonly stepActivationEnabled = window.matchMedia('(pointer: coarse)').matches;
+  private adaptiveResolutionScale = 1;
+  private rollingFrameMs = 16.6;
+  private adaptiveTimer = 0;
 
   constructor(private readonly canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
+    this.quality = detectQualityTier();
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.tier !== 'low', preserveDrawingBuffer: true, powerPreference: this.quality.tier === 'low' ? 'low-power' : 'high-performance' });
+    this.renderer.setPixelRatio(this.quality.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = this.quality.enableShadows;
     this.renderer.shadowMap.type = THREE.VSMShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.92;
 
     this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 100);
-    const sceneParts = createScene(this.currentLevel);
+    const sceneParts = createScene(this.currentLevel, this.quality);
     this.scene = sceneParts.scene;
     const renderPass = new RenderPass(this.scene, this.camera);
-    this.gtaoPass = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
-    this.gtaoPass.updateGtaoMaterial({ radius: 0.34, distanceExponent: 1.6, thickness: 0.22, scale: 1.0, samples: 16, distanceFallOff: 1.0 });
-    this.gtaoPass.blendIntensity = 0.6;
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.46, 0.42, 0.72);
-    this.smaaPass = new SMAAPass(window.innerWidth, window.innerHeight);
-    this.lutPass = new LUTPass({ lut: createCinematicLut(), intensity: 0.7 });
     this.composer = new EffectComposer(this.renderer);
-    this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
+    this.composer.setPixelRatio(this.quality.pixelRatio);
     this.composer.setSize(window.innerWidth, window.innerHeight);
     this.composer.addPass(renderPass);
-    this.composer.addPass(this.gtaoPass);
-    this.composer.addPass(this.bloomPass);
-    this.composer.addPass(this.lutPass);
-    this.composer.addPass(this.smaaPass);
+    if (this.quality.enableGtao) {
+      this.gtaoPass = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+      this.gtaoPass.updateGtaoMaterial({ radius: 0.34, distanceExponent: 1.6, thickness: 0.22, scale: 1.0, samples: 16, distanceFallOff: 1.0 });
+      this.gtaoPass.blendIntensity = 0.6;
+      this.composer.addPass(this.gtaoPass);
+    }
+    if (this.quality.enableBloom) {
+      this.composer.addPass(this.bloomPass);
+    }
+    if (this.quality.enableLut) {
+      this.lutPass = new LUTPass({ lut: createCinematicLut(), intensity: 0.85 });
+      this.composer.addPass(this.lutPass);
+      this.vignettePass = new ShaderPass(createVignetteShader());
+      this.composer.addPass(this.vignettePass);
+    }
+    if (this.quality.enableSmaa) {
+      this.smaaPass = new SMAAPass(window.innerWidth, window.innerHeight);
+      this.composer.addPass(this.smaaPass);
+    }
     this.composer.addPass(new OutputPass());
     this.applyRenderProfile(this.currentLevel);
     this.levelEnvironment = sceneParts.levelEnvironment;
@@ -210,8 +228,29 @@ export class Game {
     );
     this.animateExit(delta);
     this.updateCameraShake(delta);
+    this.updateAdaptiveResolution(delta);
     this.composer.render();
   };
+
+  private updateAdaptiveResolution(delta: number): void {
+    const frameMs = delta * 1000;
+    this.rollingFrameMs = this.rollingFrameMs * 0.92 + frameMs * 0.08;
+    this.adaptiveTimer += delta;
+    if (this.adaptiveTimer < 0.5) return;
+    this.adaptiveTimer = 0;
+    let next = this.adaptiveResolutionScale;
+    if (this.rollingFrameMs > 26) {
+      next = Math.max(0.55, this.adaptiveResolutionScale - 0.08);
+    } else if (this.rollingFrameMs < 17 && this.adaptiveResolutionScale < 1) {
+      next = Math.min(1, this.adaptiveResolutionScale + 0.05);
+    }
+    if (Math.abs(next - this.adaptiveResolutionScale) > 0.01) {
+      this.adaptiveResolutionScale = next;
+      const effectivePixelRatio = this.quality.pixelRatio * this.adaptiveResolutionScale;
+      this.renderer.setPixelRatio(effectivePixelRatio);
+      this.composer.setPixelRatio(effectivePixelRatio);
+    }
+  }
 
   private updateTargetedTile(): void {
     this.raycaster.setFromCamera(this.reticle, this.camera);
@@ -735,7 +774,7 @@ export class Game {
     this.tileGrid.setRouteVisible(false);
     this.scene.remove(this.levelEnvironment.group);
     disposeLevelEnvironment(this.levelEnvironment);
-    this.levelEnvironment = createLevelEnvironment(level);
+    this.levelEnvironment = createLevelEnvironment(level, this.quality);
     this.scene.add(this.levelEnvironment.group);
     this.applyLevelEnvironment(this.levelEnvironment);
     this.applyRenderProfile(level);
@@ -784,14 +823,13 @@ export class Game {
   private onResize = (): void => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    const pixelRatio = Math.min(window.devicePixelRatio, 2.25);
-    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setPixelRatio(this.quality.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.composer.setPixelRatio(pixelRatio);
+    this.composer.setPixelRatio(this.quality.pixelRatio);
     this.composer.setSize(window.innerWidth, window.innerHeight);
-    this.gtaoPass.setSize(window.innerWidth, window.innerHeight);
+    this.gtaoPass?.setSize(window.innerWidth, window.innerHeight);
     this.bloomPass.setSize(window.innerWidth, window.innerHeight);
-    this.smaaPass.setSize(window.innerWidth, window.innerHeight);
+    this.smaaPass?.setSize(window.innerWidth, window.innerHeight);
   };
 
   private createEnvironmentMap(): THREE.Texture {
@@ -818,21 +856,25 @@ function createCinematicLut(): THREE.Data3DTexture {
         const gn = g / (size - 1);
         const bn = b / (size - 1);
         const luminance = rn * 0.299 + gn * 0.587 + bn * 0.114;
-        // Cool shadows (teal), warm highlights (amber), gently lifted blacks, slightly compressed whites.
-        const shadowMix = 1 - luminance;
-        const highlightMix = luminance;
-        let outR = rn + highlightMix * 0.06 - shadowMix * 0.04;
-        let outG = gn + highlightMix * 0.02 + shadowMix * 0.01;
-        let outB = bn - highlightMix * 0.05 + shadowMix * 0.07;
-        // S-curve for contrast.
+        const shadowMix = Math.pow(1 - luminance, 1.4);
+        const highlightMix = Math.pow(luminance, 1.2);
+        // Stronger cool shadow push, warmer highlight, deeper crushed blacks.
+        let outR = rn + highlightMix * 0.11 - shadowMix * 0.08;
+        let outG = gn + highlightMix * 0.05 + shadowMix * 0.005;
+        let outB = bn - highlightMix * 0.08 + shadowMix * 0.11;
+        // Stronger contrast curve.
         outR = contrastCurve(outR);
         outG = contrastCurve(outG);
         outB = contrastCurve(outB);
-        // Slight desaturation overall to read as filmic.
+        // Crush blacks below 0.05.
+        outR = liftBlacks(outR);
+        outG = liftBlacks(outG);
+        outB = liftBlacks(outB);
+        // Subtle desaturation for filmic feel.
         const lum = outR * 0.299 + outG * 0.587 + outB * 0.114;
-        outR = lum + (outR - lum) * 0.92;
-        outG = lum + (outG - lum) * 0.92;
-        outB = lum + (outB - lum) * 0.92;
+        outR = lum + (outR - lum) * 0.94;
+        outG = lum + (outG - lum) * 0.94;
+        outB = lum + (outB - lum) * 0.94;
         data[index++] = Math.round(THREE.MathUtils.clamp(outR, 0, 1) * 255);
         data[index++] = Math.round(THREE.MathUtils.clamp(outG, 0, 1) * 255);
         data[index++] = Math.round(THREE.MathUtils.clamp(outB, 0, 1) * 255);
@@ -853,9 +895,48 @@ function createCinematicLut(): THREE.Data3DTexture {
 }
 
 function contrastCurve(value: number): number {
-  // Soft S-curve around 0.5 to add gentle filmic contrast.
   const x = THREE.MathUtils.clamp(value, 0, 1);
-  return x * x * (3 - 2 * x) * 0.6 + x * 0.4;
+  return x * x * (3 - 2 * x) * 0.72 + x * 0.28;
+}
+
+function liftBlacks(value: number): number {
+  // Crush near-blacks: anything below 0.06 gets pulled toward 0 for deeper shadows.
+  if (value < 0.06) {
+    return value * 0.5;
+  }
+  return value;
+}
+
+function createVignetteShader() {
+  return {
+    uniforms: {
+      tDiffuse: { value: null as THREE.Texture | null },
+      intensity: { value: 0.42 },
+      softness: { value: 0.65 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D tDiffuse;
+      uniform float intensity;
+      uniform float softness;
+      varying vec2 vUv;
+      void main() {
+        vec4 color = texture2D(tDiffuse, vUv);
+        vec2 centered = vUv - 0.5;
+        float dist = dot(centered, centered) * 1.6;
+        float vignette = smoothstep(softness, softness - 0.45, dist);
+        // Mix toward a slightly cool darker tone in the corners for filmic falloff.
+        vec3 darkened = mix(color.rgb * (1.0 - intensity * 0.85), color.rgb, vignette);
+        gl_FragColor = vec4(darkened, color.a);
+      }
+    `,
+  };
 }
 
 function key(coord: TileCoord): string {

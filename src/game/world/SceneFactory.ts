@@ -3,8 +3,21 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { RectAreaLightUniformsLib } from 'three/examples/jsm/lights/RectAreaLightUniformsLib.js';
 import { TILE_SIZE } from '../config';
 import type { LevelDefinition, TileCoord } from '../types';
+import type { QualitySettings } from './quality';
 
 const TEXTURE_ANISOTROPY = 8;
+
+const DEFAULT_QUALITY: QualitySettings = {
+  tier: 'high',
+  pixelRatio: 2,
+  shadowMapSize: 3072,
+  enableGtao: true,
+  enableSmaa: true,
+  enableLut: true,
+  enableBloom: true,
+  enableShadows: true,
+  rectAreaLightDensity: 1,
+};
 
 type SurfaceKind = 'floor' | 'wall' | 'dark-panel' | 'metal' | 'trim' | 'door';
 
@@ -20,7 +33,7 @@ export type LevelEnvironment = {
   alarmLight: THREE.PointLight;
 };
 
-export function createScene(level: LevelDefinition): SceneParts {
+export function createScene(level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): SceneParts {
   RectAreaLightUniformsLib.init();
   const scene = new THREE.Scene();
   scene.background = createChamberSkyTexture(level);
@@ -31,8 +44,8 @@ export function createScene(level: LevelDefinition): SceneParts {
 
   const keyLight = new THREE.DirectionalLight(level.chamber.light, level.chamber.visualStyle === 'highTech' ? 0.62 : 0.5);
   keyLight.position.set(4.5, 9.8, 5.4);
-  keyLight.castShadow = true;
-  keyLight.shadow.mapSize.set(3072, 3072);
+  keyLight.castShadow = quality.enableShadows;
+  keyLight.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
   keyLight.shadow.camera.near = 0.8;
   keyLight.shadow.camera.far = 42;
   keyLight.shadow.camera.left = -18;
@@ -50,18 +63,18 @@ export function createScene(level: LevelDefinition): SceneParts {
   const boardSpot = new THREE.SpotLight(level.chamber.light, level.chamber.visualStyle === 'industrial' ? 0.9 : 0.72, 20, Math.PI / 5.8, 0.68, 1.6);
   boardSpot.position.set(0, 4.25, 2.4);
   boardSpot.target.position.set(0, 0.05, -0.7);
-  boardSpot.castShadow = true;
-  boardSpot.shadow.mapSize.set(1024, 1024);
+  boardSpot.castShadow = quality.enableShadows;
+  boardSpot.shadow.mapSize.set(Math.min(1024, quality.shadowMapSize), Math.min(1024, quality.shadowMapSize));
   boardSpot.shadow.bias = -0.00012;
   scene.add(boardSpot, boardSpot.target);
 
-  const levelEnvironment = createLevelEnvironment(level);
+  const levelEnvironment = createLevelEnvironment(level, quality);
   scene.add(levelEnvironment.group);
 
   return { scene, levelEnvironment, ...levelEnvironment };
 }
 
-export function createLevelEnvironment(level: LevelDefinition): LevelEnvironment {
+export function createLevelEnvironment(level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): LevelEnvironment {
   const group = new THREE.Group();
   group.name = 'ProceduralLevelEnvironment';
 
@@ -78,18 +91,18 @@ export function createLevelEnvironment(level: LevelDefinition): LevelEnvironment
 
   const floor = new THREE.Mesh(
     new RoundedBoxGeometry(level.width * TILE_SIZE + 5.2, 0.22, level.depth * TILE_SIZE + 5.8, 3, 0.08),
-    createIndustrialMaterial(level.chamber.floor, 0.84, 0.2, 'floor', 4, 5),
+    createIndustrialMaterial(level.chamber.floor, 0.44, 0.6, 'floor', 4, 5),
   );
   floor.position.y = -0.18;
   floor.receiveShadow = true;
   group.add(floor);
 
   addFloorRails(group, level);
-  addFloorLightStrips(group, level);
-  addWalls(group, level);
+  addFloorLightStrips(group, level, quality);
+  addWalls(group, level, quality);
   addLayoutDressing(group, level);
-  addCeilingPanels(group, level);
-  addOverheadBeams(group, level);
+  addCeilingPanels(group, level, quality);
+  addOverheadBeams(group, level, quality);
   addTrainingPanels(group, level);
   addThemeDecals(group, level);
 
@@ -234,7 +247,7 @@ function addFloorRails(target: THREE.Object3D, level: LevelDefinition): void {
   });
 }
 
-function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition): void {
+function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): void {
   const railDepth = level.depth * TILE_SIZE + 3.2;
   const laneWidth = level.width * TILE_SIZE + 3.1;
   const stripMaterial = new THREE.MeshBasicMaterial({
@@ -273,6 +286,7 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition): vo
   const interRowChannelMaterial = createIndustrialMaterial(level.chamber.wallDark, 0.72, 0.34, 'dark-panel', 1, 1);
   const stripLength = level.width * TILE_SIZE + 0.9;
   const tilePitch = TILE_SIZE;
+  const stripStride = quality.rectAreaLightDensity >= 0.9 ? 1 : quality.rectAreaLightDensity >= 0.5 ? 2 : 4;
   for (let rowIndex = 0; rowIndex < level.depth - 1; rowIndex += 1) {
     const z = (rowIndex - (level.depth - 1) / 2) * tilePitch + tilePitch / 2;
     const channel = new THREE.Mesh(new RoundedBoxGeometry(stripLength, 0.06, 0.28, 1, 0.018), interRowChannelMaterial);
@@ -291,7 +305,9 @@ function addFloorLightStrips(target: THREE.Object3D, level: LevelDefinition): vo
     const interRowLight = new THREE.RectAreaLight(level.chamber.warning, 1.6, stripLength - 0.2, 0.14);
     interRowLight.position.set(0, 0.12, z);
     interRowLight.rotation.x = -Math.PI / 2;
-    target.add(interRowLight);
+    if (rowIndex % stripStride === 0) {
+      target.add(interRowLight);
+    }
   }
 }
 
@@ -356,7 +372,7 @@ function addLayoutDressing(target: THREE.Object3D, level: LevelDefinition): void
   }
 }
 
-function addWalls(target: THREE.Object3D, level: LevelDefinition): void {
+function addWalls(target: THREE.Object3D, level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): void {
   const width = level.width * TILE_SIZE + 5.2;
   const depth = level.depth * TILE_SIZE + 5.8;
   const wallMaterial = createIndustrialMaterial(level.chamber.wall, 0.78, 0.28, 'wall', 3.2, 1.4);
@@ -369,8 +385,8 @@ function addWalls(target: THREE.Object3D, level: LevelDefinition): void {
   addBackWallFocalArchitecture(target, level, width, depth, darkMaterial, trimMaterial, coolTrimMaterial);
 
   const sideGlowColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight;
-  target.add(buildExtrudedSideWall(level, width, depth, -1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor));
-  target.add(buildExtrudedSideWall(level, width, depth, 1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor));
+  target.add(buildExtrudedSideWall(level, width, depth, -1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor, quality));
+  target.add(buildExtrudedSideWall(level, width, depth, 1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor, quality));
 
   addObservationWindows(target, level, width, depth);
   addWallConduits(target, level, width, depth, coolTrimMaterial, trimMaterial);
@@ -387,6 +403,7 @@ function buildExtrudedSideWall(
   _darkMaterial: THREE.Material,
   _trimMaterial: THREE.Material,
   glowColor: string,
+  quality: QualitySettings = DEFAULT_QUALITY,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = side < 0 ? 'SideWallLeft' : 'SideWallRight';
@@ -514,7 +531,7 @@ function buildExtrudedSideWall(
     (dataLine.material as THREE.MeshBasicMaterial).opacity = 0.34;
     group.add(dataLine);
 
-    if ((bayIndex + level.levelNumber) % 2 === 0) {
+    if ((bayIndex + level.levelNumber) % 2 === 0 && quality.rectAreaLightDensity >= 0.5) {
       const bayLight = new THREE.RectAreaLight(
         glowColor,
         level.chamber.visualStyle === 'industrial' ? 0.6 : 0.85,
@@ -702,7 +719,7 @@ function addWallConduits(
   });
 }
 
-function addCeilingPanels(target: THREE.Object3D, level: LevelDefinition): void {
+function addCeilingPanels(target: THREE.Object3D, level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): void {
   const width = level.width * TILE_SIZE + 5.1;
   const depth = level.depth * TILE_SIZE + 5.4;
   const ceilingMaterial = createIndustrialMaterial(level.chamber.ceiling, 0.62, 0.42, 'metal', 2.6, 3.4);
@@ -737,7 +754,11 @@ function addCeilingPanels(target: THREE.Object3D, level: LevelDefinition): void 
     panelLight.rotation.x = -Math.PI / 2;
     recess.castShadow = true;
     recess.receiveShadow = true;
-    target.add(recess, diffuser, leftDiffuser, rightDiffuser, panelLight);
+    if (quality.rectAreaLightDensity >= 0.5 || rowIndex % 2 === 0) {
+      target.add(recess, diffuser, leftDiffuser, rightDiffuser, panelLight);
+    } else {
+      target.add(recess, diffuser, leftDiffuser, rightDiffuser);
+    }
   }
 
   // Longitudinal structural beams: concept 1 has visible beams running toward the vanishing point.
@@ -1117,7 +1138,7 @@ function createWallLight(color: string): THREE.Group {
   return group;
 }
 
-function addOverheadBeams(target: THREE.Object3D, level: LevelDefinition): void {
+function addOverheadBeams(target: THREE.Object3D, level: LevelDefinition, quality: QualitySettings = DEFAULT_QUALITY): void {
   const beamMaterial = createIndustrialMaterial(level.chamber.ceiling, 0.54, 0.58, 'metal', 2.8, 1);
   const diffuserMaterial = new THREE.MeshBasicMaterial({ color: level.chamber.light, transparent: true, opacity: 0.24, depthWrite: false });
   const shaftMaterial = new THREE.MeshBasicMaterial({
@@ -1153,7 +1174,9 @@ function addOverheadBeams(target: THREE.Object3D, level: LevelDefinition): void 
     const light = new THREE.RectAreaLight(level.chamber.light, 0.92, width * 0.55, 0.08);
     light.position.set(0, 3.67, positionZ);
     light.rotation.x = -Math.PI / 2;
-    target.add(light);
+    if (beamIndex % (quality.rectAreaLightDensity >= 0.9 ? 1 : quality.rectAreaLightDensity >= 0.5 ? 2 : 3) === 0) {
+      target.add(light);
+    }
   }
 }
 
@@ -1681,7 +1704,7 @@ function createIndustrialMaterial(
   emissive?: THREE.Color | string,
 ): THREE.MeshStandardMaterial {
   const normalStrength = kind === 'floor' ? 0.072 : kind === 'wall' || kind === 'dark-panel' ? 0.052 : 0.082;
-  const envMapIntensity = kind === 'metal' || kind === 'trim' ? 0.68 : kind === 'door' ? 0.38 : kind === 'floor' ? 0.26 : 0.22;
+  const envMapIntensity = kind === 'metal' || kind === 'trim' ? 0.68 : kind === 'door' ? 0.38 : kind === 'floor' ? 0.92 : 0.22;
   const aoIntensity = kind === 'floor' ? 0.28 : kind === 'wall' || kind === 'dark-panel' ? 0.34 : 0.24;
 
   return new THREE.MeshStandardMaterial({
