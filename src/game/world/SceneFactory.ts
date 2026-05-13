@@ -329,21 +329,201 @@ function addWalls(target: THREE.Object3D, level: LevelDefinition): void {
   addSegmentedBackWall(target, level, width, depth, wallMaterial);
   addBackWallFocalArchitecture(target, level, width, depth, darkMaterial, trimMaterial, coolTrimMaterial);
 
-  const leftWall = new THREE.Mesh(new THREE.BoxGeometry(0.18, 4.18, depth), wallMaterial);
-  leftWall.position.set(-width / 2, 1.9, 0);
-  leftWall.receiveShadow = true;
-  target.add(leftWall);
+  const sideGlowColor = level.chamber.visualStyle === 'industrial' ? level.chamber.warning : level.chamber.sideLight;
+  target.add(buildExtrudedSideWall(level, width, depth, -1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor));
+  target.add(buildExtrudedSideWall(level, width, depth, 1, wallMaterial, darkMaterial, coolTrimMaterial, sideGlowColor));
 
-  const rightWall = leftWall.clone();
-  rightWall.position.x = width / 2;
-  target.add(rightWall);
-
-  addWallStructuralRibs(target, level, width, depth, coolTrimMaterial, darkMaterial);
   addObservationWindows(target, level, width, depth);
   addWallConduits(target, level, width, depth, coolTrimMaterial, trimMaterial);
   addWallBands(target, level, width, depth, trimMaterial, coolTrimMaterial);
   addBackWallModules(target, level, width, depth, darkMaterial, insetMaterial, trimMaterial, coolTrimMaterial);
-  addSideWallModules(target, level, width, depth, darkMaterial, insetMaterial, trimMaterial, coolTrimMaterial);
+}
+
+function buildExtrudedSideWall(
+  level: LevelDefinition,
+  width: number,
+  depth: number,
+  side: number,
+  wallMaterial: THREE.Material,
+  _darkMaterial: THREE.Material,
+  _trimMaterial: THREE.Material,
+  glowColor: string,
+): THREE.Group {
+  const group = new THREE.Group();
+  group.name = side < 0 ? 'SideWallLeft' : 'SideWallRight';
+
+  const wallLength = depth;
+  const wallHeight = 4.18;
+  const thickness = 0.18;
+  const bayCount = clamp(Math.floor(depth / 2.0), 4, 7);
+  const bayWidth = (wallLength / bayCount) * 0.66;
+  const bayHeight = wallHeight * 0.5;
+  const bayCenterY = wallHeight * 0.5 + 0.04;
+
+  const shape = new THREE.Shape();
+  shape.moveTo(-wallLength / 2, 0);
+  shape.lineTo(wallLength / 2, 0);
+  shape.lineTo(wallLength / 2, wallHeight);
+  shape.lineTo(-wallLength / 2, wallHeight);
+  shape.lineTo(-wallLength / 2, 0);
+
+  const bayCenters: number[] = [];
+  for (let i = 0; i < bayCount; i += 1) {
+    const centerX = (i + 0.5) / bayCount * wallLength - wallLength / 2;
+    bayCenters.push(centerX);
+    const halfW = bayWidth / 2;
+    const halfH = bayHeight / 2;
+    const hole = new THREE.Path();
+    hole.moveTo(centerX - halfW, bayCenterY - halfH);
+    hole.lineTo(centerX + halfW, bayCenterY - halfH);
+    hole.lineTo(centerX + halfW, bayCenterY + halfH);
+    hole.lineTo(centerX - halfW, bayCenterY + halfH);
+    hole.lineTo(centerX - halfW, bayCenterY - halfH);
+    shape.holes.push(hole);
+  }
+
+  const wallGeometry = new THREE.ExtrudeGeometry(shape, {
+    depth: thickness,
+    bevelEnabled: true,
+    bevelSize: 0.018,
+    bevelThickness: 0.014,
+    bevelSegments: 1,
+    steps: 1,
+  });
+  wallGeometry.computeVertexNormals();
+  prepareGeometryForAo(wallGeometry);
+  const wallMesh = new THREE.Mesh(wallGeometry, wallMaterial);
+  wallMesh.castShadow = true;
+  wallMesh.receiveShadow = true;
+  group.add(wallMesh);
+
+  const insetPanelMaterial = new THREE.MeshStandardMaterial({
+    color: level.chamber.wallDark,
+    roughness: 0.74,
+    metalness: 0.32,
+    envMapIntensity: 0.22,
+  });
+  const glowMaterial = new THREE.MeshBasicMaterial({
+    color: glowColor,
+    transparent: true,
+    opacity: 0.58,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const trimAccent = new THREE.MeshStandardMaterial({
+    color: '#1f2a32',
+    roughness: 0.46,
+    metalness: 0.64,
+    envMapIntensity: 0.48,
+  });
+
+  bayCenters.forEach((centerX, bayIndex) => {
+    const inset = new THREE.Mesh(
+      new RoundedBoxGeometry(bayWidth - 0.08, bayHeight - 0.08, 0.08, 2, 0.022),
+      insetPanelMaterial.clone(),
+    );
+    inset.position.set(centerX, bayCenterY, 0.04);
+    inset.castShadow = false;
+    inset.receiveShadow = true;
+    group.add(inset);
+
+    const frameTop = new THREE.Mesh(
+      new RoundedBoxGeometry(bayWidth + 0.04, 0.06, 0.05, 1, 0.012),
+      trimAccent.clone(),
+    );
+    frameTop.position.set(centerX, bayCenterY + bayHeight / 2 + 0.02, thickness + 0.012);
+    group.add(frameTop);
+    const frameBottom = frameTop.clone();
+    frameBottom.material = trimAccent.clone();
+    frameBottom.position.y = bayCenterY - bayHeight / 2 - 0.02;
+    group.add(frameBottom);
+
+    const lightBar = new THREE.Mesh(
+      new RoundedBoxGeometry(bayWidth - 0.22, 0.045, 0.022, 1, 0.008),
+      glowMaterial.clone(),
+    );
+    lightBar.position.set(centerX, bayCenterY - bayHeight / 2 + 0.085, 0.105);
+    group.add(lightBar);
+
+    if ((bayIndex + level.levelNumber) % 2 === 0) {
+      const topBar = lightBar.clone();
+      topBar.material = glowMaterial.clone();
+      topBar.position.y = bayCenterY + bayHeight / 2 - 0.085;
+      group.add(topBar);
+    }
+
+    const dataLine = new THREE.Mesh(
+      new RoundedBoxGeometry(0.018, bayHeight * 0.46, 0.018, 1, 0.005),
+      glowMaterial.clone(),
+    );
+    dataLine.position.set(centerX - bayWidth * 0.36, bayCenterY, 0.108);
+    (dataLine.material as THREE.MeshBasicMaterial).opacity = 0.34;
+    group.add(dataLine);
+
+    if ((bayIndex + level.levelNumber) % 2 === 0) {
+      const bayLight = new THREE.RectAreaLight(
+        glowColor,
+        level.chamber.visualStyle === 'industrial' ? 0.6 : 0.85,
+        bayWidth - 0.3,
+        0.06,
+      );
+      bayLight.position.set(centerX, bayCenterY - bayHeight / 2 + 0.085, 0.13);
+      bayLight.lookAt(new THREE.Vector3(centerX, bayCenterY - bayHeight / 2 + 0.085, thickness + 1));
+      group.add(bayLight);
+    }
+  });
+
+  const kickRail = new THREE.Mesh(
+    new RoundedBoxGeometry(wallLength - 0.4, 0.08, 0.06, 1, 0.014),
+    trimAccent.clone(),
+  );
+  kickRail.position.set(0, 0.18, thickness + 0.018);
+  group.add(kickRail);
+
+  const ceilingRail = new THREE.Mesh(
+    new RoundedBoxGeometry(wallLength - 0.4, 0.08, 0.06, 1, 0.014),
+    trimAccent.clone(),
+  );
+  ceilingRail.position.set(0, wallHeight - 0.22, thickness + 0.018);
+  group.add(ceilingRail);
+
+  // Continuous top light strip running the wall length (concept's hero cyan line).
+  const topLightStrip = new THREE.Mesh(
+    new RoundedBoxGeometry(wallLength - 0.5, 0.032, 0.022, 1, 0.008),
+    glowMaterial.clone(),
+  );
+  (topLightStrip.material as THREE.MeshBasicMaterial).opacity = 0.72;
+  topLightStrip.position.set(0, wallHeight - 0.36, thickness + 0.03);
+  group.add(topLightStrip);
+
+  const topRectLight = new THREE.RectAreaLight(glowColor, level.chamber.visualStyle === 'industrial' ? 0.45 : 0.7, wallLength - 0.5, 0.04);
+  topRectLight.position.set(0, wallHeight - 0.36, thickness + 0.05);
+  topRectLight.lookAt(new THREE.Vector3(0, wallHeight - 0.36, thickness + 1));
+  group.add(topRectLight);
+
+  // Subtle warm under-rail amber accent like concept 1.
+  const warmStrip = new THREE.Mesh(
+    new RoundedBoxGeometry(wallLength - 0.6, 0.022, 0.018, 1, 0.006),
+    new THREE.MeshBasicMaterial({
+      color: level.chamber.warning,
+      transparent: true,
+      opacity: 0.34,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }),
+  );
+  warmStrip.position.set(0, 0.34, thickness + 0.026);
+  group.add(warmStrip);
+
+  if (side < 0) {
+    group.rotation.y = Math.PI / 2;
+    group.position.set(-width / 2 - 0.09, 0, 0);
+  } else {
+    group.rotation.y = -Math.PI / 2;
+    group.position.set(width / 2 + 0.09, 0, 0);
+  }
+
+  return group;
 }
 
 function addWallStructuralRibs(

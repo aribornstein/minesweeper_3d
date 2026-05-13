@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { SSAOPass } from 'three/examples/jsm/postprocessing/SSAOPass.js';
+import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
+import { LUTPass } from 'three/examples/jsm/postprocessing/LUTPass.js';
+import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { PLAYER_HEIGHT, RAYCAST_DISTANCE, TILE_SIZE } from './config';
@@ -76,8 +78,10 @@ type FlagThrow = {
 export class Game {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly composer: EffectComposer;
-  private readonly ssaoPass: SSAOPass;
+  private readonly gtaoPass: GTAOPass;
   private readonly bloomPass: UnrealBloomPass;
+  private readonly lutPass: LUTPass;
+  private readonly smaaPass: SMAAPass;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly clock = new THREE.Clock();
   private readonly raycaster = new THREE.Raycaster();
@@ -117,21 +121,24 @@ export class Game {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.92;
 
-    this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+    this.camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 100);
     const sceneParts = createScene(this.currentLevel);
     this.scene = sceneParts.scene;
     const renderPass = new RenderPass(this.scene, this.camera);
-    this.ssaoPass = new SSAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight, 16);
-    this.ssaoPass.kernelRadius = 2.2;
-    this.ssaoPass.minDistance = 0.004;
-    this.ssaoPass.maxDistance = 0.055;
+    this.gtaoPass = new GTAOPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+    this.gtaoPass.updateGtaoMaterial({ radius: 0.34, distanceExponent: 1.6, thickness: 0.22, scale: 1.0, samples: 16, distanceFallOff: 1.0 });
+    this.gtaoPass.blendIntensity = 0.6;
     this.bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.46, 0.42, 0.72);
+    this.smaaPass = new SMAAPass(window.innerWidth, window.innerHeight);
+    this.lutPass = new LUTPass({ lut: createCinematicLut(), intensity: 0.7 });
     this.composer = new EffectComposer(this.renderer);
     this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2.25));
     this.composer.setSize(window.innerWidth, window.innerHeight);
     this.composer.addPass(renderPass);
-    this.composer.addPass(this.ssaoPass);
+    this.composer.addPass(this.gtaoPass);
     this.composer.addPass(this.bloomPass);
+    this.composer.addPass(this.lutPass);
+    this.composer.addPass(this.smaaPass);
     this.composer.addPass(new OutputPass());
     this.applyRenderProfile(this.currentLevel);
     this.levelEnvironment = sceneParts.levelEnvironment;
@@ -770,8 +777,8 @@ export class Game {
   private applyRenderProfile(level: LevelDefinition): void {
     this.bloomPass.strength = 0.16 + level.chamber.bloom * 0.22;
     this.bloomPass.radius = level.chamber.visualStyle === 'highTech' ? 0.32 : 0.28;
-    this.bloomPass.threshold = level.chamber.visualStyle === 'industrial' ? 0.86 : 0.82;
-    this.renderer.toneMappingExposure = level.chamber.visualStyle === 'clean' ? 0.82 : 0.76;
+    this.bloomPass.threshold = level.chamber.visualStyle === 'industrial' ? 0.94 : 0.92;
+    this.renderer.toneMappingExposure = level.chamber.visualStyle === 'clean' ? 0.78 : 0.72;
   }
 
   private onResize = (): void => {
@@ -782,8 +789,9 @@ export class Game {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.composer.setPixelRatio(pixelRatio);
     this.composer.setSize(window.innerWidth, window.innerHeight);
-    this.ssaoPass.setSize(window.innerWidth, window.innerHeight);
+    this.gtaoPass.setSize(window.innerWidth, window.innerHeight);
     this.bloomPass.setSize(window.innerWidth, window.innerHeight);
+    this.smaaPass.setSize(window.innerWidth, window.innerHeight);
   };
 
   private createEnvironmentMap(): THREE.Texture {
@@ -797,6 +805,57 @@ export class Game {
 function smoothstep(value: number): number {
   const clamped = THREE.MathUtils.clamp(value, 0, 1);
   return clamped * clamped * (3 - 2 * clamped);
+}
+
+function createCinematicLut(): THREE.Data3DTexture {
+  const size = 16;
+  const data = new Uint8Array(size * size * size * 4);
+  let index = 0;
+  for (let b = 0; b < size; b += 1) {
+    for (let g = 0; g < size; g += 1) {
+      for (let r = 0; r < size; r += 1) {
+        const rn = r / (size - 1);
+        const gn = g / (size - 1);
+        const bn = b / (size - 1);
+        const luminance = rn * 0.299 + gn * 0.587 + bn * 0.114;
+        // Cool shadows (teal), warm highlights (amber), gently lifted blacks, slightly compressed whites.
+        const shadowMix = 1 - luminance;
+        const highlightMix = luminance;
+        let outR = rn + highlightMix * 0.06 - shadowMix * 0.04;
+        let outG = gn + highlightMix * 0.02 + shadowMix * 0.01;
+        let outB = bn - highlightMix * 0.05 + shadowMix * 0.07;
+        // S-curve for contrast.
+        outR = contrastCurve(outR);
+        outG = contrastCurve(outG);
+        outB = contrastCurve(outB);
+        // Slight desaturation overall to read as filmic.
+        const lum = outR * 0.299 + outG * 0.587 + outB * 0.114;
+        outR = lum + (outR - lum) * 0.92;
+        outG = lum + (outG - lum) * 0.92;
+        outB = lum + (outB - lum) * 0.92;
+        data[index++] = Math.round(THREE.MathUtils.clamp(outR, 0, 1) * 255);
+        data[index++] = Math.round(THREE.MathUtils.clamp(outG, 0, 1) * 255);
+        data[index++] = Math.round(THREE.MathUtils.clamp(outB, 0, 1) * 255);
+        data[index++] = 255;
+      }
+    }
+  }
+  const texture = new THREE.Data3DTexture(data, size, size, size);
+  texture.format = THREE.RGBAFormat;
+  texture.type = THREE.UnsignedByteType;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
+  texture.wrapR = THREE.ClampToEdgeWrapping;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function contrastCurve(value: number): number {
+  // Soft S-curve around 0.5 to add gentle filmic contrast.
+  const x = THREE.MathUtils.clamp(value, 0, 1);
+  return x * x * (3 - 2 * x) * 0.6 + x * 0.4;
 }
 
 function key(coord: TileCoord): string {
