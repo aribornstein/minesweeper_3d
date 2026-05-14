@@ -630,3 +630,5 @@ body[data-phase="escaped"] #app::before {
 .menu-install-hint p { margin: 0 0 8px; }
 .menu-install-hint strong { color: #ffd27a; }
 .menu-button-small { padding: 6px 10px; font-size: 11px; }
+
+.menu-title-danger { color: #ff8779; }

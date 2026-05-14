@@ -757,6 +757,10 @@ export class Game {
       this.camera.rotation.x = THREE.MathUtils.lerp(this.deathAnim.startPitch, -0.95, ease);
       this.camera.rotation.z = THREE.MathUtils.lerp(this.deathAnim.startRoll, 0.55, ease);
       this.camera.rotation.y = this.deathAnim.targetYaw;
+      if (this.deathAnim.elapsed >= 1.4 && !this.menuOpen) {
+        this.menuOpen = true;
+        this.menuController.openGameOver();
+      }
     }
   }
 

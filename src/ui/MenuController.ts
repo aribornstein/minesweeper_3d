@@ -1,6 +1,6 @@
 import { getSettings, type QualityPreference, updateSettings } from './Settings';
 
-export type MenuScreen = 'none' | 'main' | 'pause' | 'settings';
+export type MenuScreen = 'none' | 'main' | 'pause' | 'settings' | 'gameover';
 
 export type MenuHandlers = {
   onPlay: () => void;
@@ -16,6 +16,7 @@ export class MenuController {
   private readonly mainPanel: HTMLDivElement;
   private readonly pausePanel: HTMLDivElement;
   private readonly settingsPanel: HTMLDivElement;
+  private readonly gameOverPanel: HTMLDivElement;
   private readonly qualitySelect: HTMLSelectElement;
   private readonly sensitivityInput: HTMLInputElement;
   private readonly sensitivityValue: HTMLSpanElement;
@@ -34,6 +35,7 @@ export class MenuController {
     this.mainPanel = this.buildMainPanel();
     this.pausePanel = this.buildPausePanel();
     this.settingsPanel = this.buildSettingsPanel();
+    this.gameOverPanel = this.buildGameOverPanel();
 
     this.qualitySelect = this.settingsPanel.querySelector<HTMLSelectElement>('select[name="quality"]')!;
     this.sensitivityInput = this.settingsPanel.querySelector<HTMLInputElement>('input[name="sensitivity"]')!;
@@ -44,7 +46,7 @@ export class MenuController {
     this.sensitivityInput.value = String(settings.sensitivity);
     this.sensitivityValue.textContent = formatSensitivity(settings.sensitivity);
 
-    this.root.append(this.mainPanel, this.pausePanel, this.settingsPanel);
+    this.root.append(this.mainPanel, this.pausePanel, this.settingsPanel, this.gameOverPanel);
     document.body.appendChild(this.root);
 
     window.addEventListener('keydown', this.onKeyDown);
@@ -59,6 +61,7 @@ export class MenuController {
     this.mainPanel.hidden = screen !== 'main';
     this.pausePanel.hidden = screen !== 'pause';
     this.settingsPanel.hidden = screen !== 'settings';
+    this.gameOverPanel.hidden = screen !== 'gameover';
     this.root.hidden = screen === 'none';
     this.root.dataset.screen = screen;
     if (screen !== 'none') {
@@ -79,6 +82,10 @@ export class MenuController {
     if (this.screen === 'none') this.show('pause');
   }
 
+  openGameOver(): void {
+    this.show('gameover');
+  }
+
   close(): void {
     this.show('none');
   }
@@ -93,7 +100,6 @@ export class MenuController {
       this.handlers.onResume();
     }
   };
-
   private buildMainPanel(): HTMLDivElement {
     const panel = document.createElement('div');
     panel.className = 'menu-panel';
@@ -144,8 +150,7 @@ export class MenuController {
     return panel;
   }
 
-  private buildSettingsPanel(): HTMLDivElement {
-    const panel = document.createElement('div');
+  private buildSettingsPanel(): HTMLDivElement {    const panel = document.createElement('div');
     panel.className = 'menu-panel';
     panel.dataset.screen = 'settings';
     panel.innerHTML = `
@@ -189,6 +194,23 @@ export class MenuController {
 
   private refreshQualityNotice(next: QualityPreference): void {
     this.qualityNotice.hidden = next === this.appliedQuality;
+  }
+
+  private buildGameOverPanel(): HTMLDivElement {
+    const panel = document.createElement('div');
+    panel.className = 'menu-panel';
+    panel.dataset.screen = 'gameover';
+    panel.innerHTML = `
+      <h1 class="menu-title menu-title-danger">Mine Triggered</h1>
+      <p class="menu-subtitle">The chamber recorded your last move.</p>
+      <div class="menu-actions">
+        <button type="button" data-action="restart" class="menu-button menu-button-primary">Restart Chamber</button>
+        <button type="button" data-action="quit" class="menu-button menu-button-quiet">Quit to Main</button>
+      </div>
+    `;
+    panel.querySelector<HTMLButtonElement>('[data-action="restart"]')!.addEventListener('click', () => this.handlers.onRestart());
+    panel.querySelector<HTMLButtonElement>('[data-action="quit"]')!.addEventListener('click', () => this.handlers.onQuitToMain());
+    return panel;
   }
 }
 
