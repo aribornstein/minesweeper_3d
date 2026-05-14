@@ -14,7 +14,7 @@ export type QualitySettings = {
 
 const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, 'tier' | 'pixelRatio'>> = {
   high: {
-    shadowMapSize: 3072,
+    shadowMapSize: 2048,
     enableGtao: true,
     enableSmaa: true,
     enableLut: true,
@@ -23,7 +23,7 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, 'tier' | 'pixelRa
     rectAreaLightDensity: 1,
   },
   medium: {
-    shadowMapSize: 1536,
+    shadowMapSize: 1024,
     enableGtao: false,
     enableSmaa: true,
     enableLut: true,
@@ -35,15 +35,15 @@ const TIER_SETTINGS: Record<QualityTier, Omit<QualitySettings, 'tier' | 'pixelRa
     shadowMapSize: 768,
     enableGtao: false,
     enableSmaa: false,
-    enableLut: true,
-    enableBloom: true,
+    enableLut: false,
+    enableBloom: false,
     enableShadows: false,
     rectAreaLightDensity: 0.25,
   },
 };
 
 const PIXEL_RATIO_CAP: Record<QualityTier, number> = {
-  high: 2.5,
+  high: 2.0,
   medium: 2.0,
   low: 1.5,
 };

@@ -11,6 +11,7 @@ type ClothUserData = {
   amplitude: number;
   age: number;
   plantStrength: number;
+  accumulator: number;
 };
 
 const FLAG_WIDTH = 0.48;
@@ -58,6 +59,7 @@ export function createFlagModel({ withBase = true, scale = 1 }: FlagModelOptions
     amplitude: 0.72 + Math.random() * 0.42,
     age: 0,
     plantStrength: 1,
+    accumulator: 0,
   } satisfies ClothUserData;
   flag.add(cloth);
 
@@ -74,6 +76,9 @@ export function createFlagModel({ withBase = true, scale = 1 }: FlagModelOptions
 }
 
 export function updateFlagModel(flag: THREE.Object3D, delta: number): void {
+  if (!flag.visible) {
+    return;
+  }
   let clothMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]> | undefined;
   let clothData: ClothUserData | undefined;
 
@@ -88,7 +93,15 @@ export function updateFlagModel(flag: THREE.Object3D, delta: number): void {
     return;
   }
 
-  clothData.age += delta;
+  clothData.accumulator += delta;
+  // Run heavy CPU cloth math at ~30Hz regardless of render framerate; initial frame (delta=0) still runs to set rest pose.
+  if (delta > 0 && clothData.accumulator < 1 / 30) {
+    return;
+  }
+  const step = clothData.accumulator > 0 ? clothData.accumulator : delta;
+  clothData.accumulator = 0;
+
+  clothData.age += step;
   const position = clothMesh.geometry.attributes.position as THREE.BufferAttribute;
   const positions = position.array as Float32Array;
   const base = clothData.basePositions;

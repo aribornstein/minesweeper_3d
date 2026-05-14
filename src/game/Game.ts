@@ -127,7 +127,12 @@ export class Game {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.quality = detectQualityTier();
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.quality.tier !== 'low', preserveDrawingBuffer: true, powerPreference: this.quality.tier === 'low' ? 'low-power' : 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: this.quality.tier !== 'low',
+      powerPreference: this.quality.tier === 'low' ? 'low-power' : 'high-performance',
+      failIfMajorPerformanceCaveat: false,
+    });
     this.renderer.setPixelRatio(this.quality.pixelRatio);
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = this.quality.enableShadows;
