@@ -1,4 +1,5 @@
 import { getSettings, type QualityPreference, updateSettings } from './Settings';
+import { drawClassicFace } from './ClassicFace';
 
 export type MenuScreen = 'none' | 'main' | 'pause' | 'settings' | 'gameover';
 

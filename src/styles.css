@@ -632,3 +632,11 @@ body[data-phase="escaped"] #app::before {
 .menu-button-small { padding: 6px 10px; font-size: 11px; }
 
 .menu-title-danger { color: #ff8779; }
+
+.menu-deadface {
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 10px;
+  filter: drop-shadow(0 6px 14px rgba(0,0,0,0.45));
+}
+.menu-deadface svg { width: 100%; height: 100%; display: block; }

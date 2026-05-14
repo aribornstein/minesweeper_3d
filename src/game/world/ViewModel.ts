@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import type { BoardProgress, GamePhase, ScannerMode, TileState } from '../types';
 import { createFlagModel, updateFlagModel } from './FlagModel';
 import { applyFlagGripHandPose, createFlagGripHand, DEFAULT_FLAG_GRIP_HAND_POSE, type FlagGripHandPose, type QuaternionTuple } from './FlagGripHand';
+import { drawClassicFace, drawClassicTile } from '../../ui/ClassicFace';
 
 const SCREEN_SIZE = 1024;
 const HELD_FLAG_SCALE = 0.78;
@@ -652,57 +653,8 @@ export class ViewModel {
     const failed = phase === 'failed';
     const cool = mode === 'path' || mode === 'escaped' || phase === 'solved' || phase === 'escaped';
     const riskyClick = !failed && !cool && Boolean(tile && !tile.revealed && !tile.flagged);
-    const faceRadius = radius * 0.74;
-
-    this.drawClassicTile(context, x, y, radius * 2.22, true);
-
-    const faceGradient = context.createRadialGradient(x - faceRadius * 0.25, y - faceRadius * 0.32, faceRadius * 0.1, x, y, faceRadius);
-    faceGradient.addColorStop(0, '#fff69a');
-    faceGradient.addColorStop(1, failed ? '#f0c322' : '#ffe100');
-
-    context.shadowColor = failed ? 'rgba(255, 61, 46, 0.32)' : cool ? 'rgba(85, 255, 157, 0.24)' : 'rgba(247, 212, 74, 0.28)';
-    context.shadowBlur = 16;
-    context.fillStyle = faceGradient;
-    context.beginPath();
-    context.arc(x, y, faceRadius, 0, Math.PI * 2);
-    context.fill();
-    context.shadowBlur = 0;
-    context.strokeStyle = '#111';
-    context.lineWidth = 4;
-    context.stroke();
-
-    context.strokeStyle = '#111';
-    context.fillStyle = '#111';
-    if (failed) {
-      this.drawXEye(context, x - faceRadius * 0.35, y - faceRadius * 0.22, faceRadius * 0.13);
-      this.drawXEye(context, x + faceRadius * 0.35, y - faceRadius * 0.22, faceRadius * 0.13);
-    } else if (cool) {
-      context.lineWidth = 4;
-      context.beginPath();
-      context.moveTo(x - faceRadius * 0.56, y - faceRadius * 0.22);
-      context.lineTo(x + faceRadius * 0.56, y - faceRadius * 0.22);
-      context.stroke();
-      this.drawSunglassLens(context, x - faceRadius * 0.28, y - faceRadius * 0.2, faceRadius * 0.22);
-      this.drawSunglassLens(context, x + faceRadius * 0.28, y - faceRadius * 0.2, faceRadius * 0.22);
-    } else {
-      context.beginPath();
-      context.arc(x - faceRadius * 0.35, y - faceRadius * 0.22, faceRadius * 0.095, 0, Math.PI * 2);
-      context.arc(x + faceRadius * 0.35, y - faceRadius * 0.22, faceRadius * 0.095, 0, Math.PI * 2);
-      context.fill();
-    }
-
-    context.lineWidth = 5;
-    context.strokeStyle = '#111';
-    context.beginPath();
-    if (failed) {
-      context.arc(x, y + faceRadius * 0.42, faceRadius * 0.35, Math.PI * 1.08, Math.PI * 1.92);
-    } else if (riskyClick) {
-      context.lineWidth = 5;
-      context.arc(x, y + faceRadius * 0.34, faceRadius * 0.16, 0, Math.PI * 2);
-    } else {
-      context.arc(x, y + faceRadius * 0.03, faceRadius * 0.42, 0.18 * Math.PI, 0.82 * Math.PI);
-    }
-    context.stroke();
+    const mood = failed ? 'dead' : cool ? 'cool' : riskyClick ? 'risky' : 'idle';
+    drawClassicFace(context, x, y, radius, mood);
   }
 
   private drawObjectiveGlyph(context: CanvasRenderingContext2D, x: number, y: number, accent: string, phase: GamePhase): void {
@@ -735,7 +687,7 @@ export class ViewModel {
   ): void {
     context.save();
     context.translate(x, y);
-    this.drawClassicTile(context, 0, 0, 34, icon !== 'safe' && icon !== 'nearby');
+    this.drawClassicTileLocal(context, 0, 0, 34, icon !== 'safe' && icon !== 'nearby');
 
     if (icon === 'safe') {
       this.drawClassicNumber(context, 1, 0, 0);
@@ -787,6 +739,10 @@ export class ViewModel {
     }
 
     context.restore();
+  }
+
+  private drawClassicTileLocal(context: CanvasRenderingContext2D, x: number, y: number, size: number, raised: boolean): void {
+    drawClassicTile(context, x, y, size, raised);
   }
 
   private drawClassicTile(context: CanvasRenderingContext2D, x: number, y: number, size: number, raised: boolean): void {
