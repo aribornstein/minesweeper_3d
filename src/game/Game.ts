@@ -36,6 +36,10 @@ declare global {
       reset: () => GamePhase;
       activeExplosions: () => number;
       triggeredExplosions: () => number;
+      rendererInfo: () => { geometries: number; textures: number; programs: number; calls: number; triangles: number };
+      sceneObjectCount: () => { total: number; meshes: number };
+      perf: () => { rollingFrameMs: number; adaptiveResolutionScale: number; flagThrows: number; pendingMineReveals: number; activeBlasts: number };
+      sceneSnapshot: () => Record<string, number>;
       cameraPosition: () => { x: number; y: number; z: number };
       moveToTile: (tileX: number, tileZ: number) => { x: number; y: number; z: number };
       exitSignal: () => { glow: string; status: string };
@@ -280,13 +284,15 @@ export class Game {
     const frameMs = delta * 1000;
     this.rollingFrameMs = this.rollingFrameMs * 0.92 + frameMs * 0.08;
     this.adaptiveTimer += delta;
-    if (this.adaptiveTimer < 0.5) return;
+    if (this.adaptiveTimer < 1.5) return;
     this.adaptiveTimer = 0;
     let next = this.adaptiveResolutionScale;
-    if (this.rollingFrameMs > 26) {
-      next = Math.max(0.75, this.adaptiveResolutionScale - 0.08);
-    } else if (this.rollingFrameMs < 17 && this.adaptiveResolutionScale < 1) {
-      next = Math.min(1, this.adaptiveResolutionScale + 0.05);
+    // Wider deadband (28ms / 14ms) and slower steps so the composer doesn't
+    // reallocate render targets several times a second when frame time hovers near a threshold.
+    if (this.rollingFrameMs > 28) {
+      next = Math.max(0.75, this.adaptiveResolutionScale - 0.05);
+    } else if (this.rollingFrameMs < 14 && this.adaptiveResolutionScale < 1) {
+      next = Math.min(1, this.adaptiveResolutionScale + 0.04);
     }
     if (Math.abs(next - this.adaptiveResolutionScale) > 0.01) {
       this.adaptiveResolutionScale = next;
@@ -892,6 +898,41 @@ export class Game {
       },
       activeExplosions: () => this.effects.activeBlastCount,
       triggeredExplosions: () => this.effects.totalTriggeredBlastCount,
+      rendererInfo: () => ({
+        geometries: this.renderer.info.memory.geometries,
+        textures: this.renderer.info.memory.textures,
+        programs: this.renderer.info.programs?.length ?? 0,
+        calls: this.renderer.info.render.calls,
+        triangles: this.renderer.info.render.triangles,
+      }),
+      sceneObjectCount: () => {
+        let total = 0;
+        let meshes = 0;
+        this.scene.traverse((child) => {
+          total += 1;
+          if ((child as THREE.Mesh).isMesh) meshes += 1;
+        });
+        return { total, meshes };
+      },
+      perf: () => ({
+        rollingFrameMs: this.rollingFrameMs,
+        adaptiveResolutionScale: this.adaptiveResolutionScale,
+        flagThrows: this.flagThrows.length,
+        pendingMineReveals: this.pendingMineReveals.length,
+        activeBlasts: this.effects.activeBlastCount,
+      }),
+      sceneSnapshot: () => {
+        const counts: Record<string, number> = {};
+        this.scene.children.forEach((topChild) => {
+          let meshCount = 0;
+          topChild.traverse((c) => {
+            if ((c as THREE.Mesh).isMesh) meshCount += 1;
+          });
+          const key = `${topChild.type}:${topChild.name || '(unnamed)'}:${topChild.uuid.slice(0, 6)}`;
+          counts[key] = meshCount;
+        });
+        return counts;
+      },
       cameraPosition: () => ({ x: this.camera.position.x, y: this.camera.position.y, z: this.camera.position.z }),
       moveToTile: (tileX: number, tileZ: number) => {
         const tilePosition = this.tileGrid.tileWorldPosition({ x: tileX, z: tileZ });

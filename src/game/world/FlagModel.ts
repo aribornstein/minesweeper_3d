@@ -61,6 +61,7 @@ export function createFlagModel({ withBase = true, scale = 1 }: FlagModelOptions
     plantStrength: 1,
     accumulator: 0,
   } satisfies ClothUserData;
+  flag.userData.clothMesh = cloth;
   flag.add(cloth);
 
   if (withBase) {
@@ -79,17 +80,14 @@ export function updateFlagModel(flag: THREE.Object3D, delta: number): void {
   if (!flag.visible) {
     return;
   }
-  let clothMesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]> | undefined;
-  let clothData: ClothUserData | undefined;
-
-  flag.traverse((child) => {
-    if (child instanceof THREE.Mesh && child.userData.flagCloth && !clothMesh) {
-      clothMesh = child;
-      clothData = child.userData.cloth as ClothUserData;
-    }
-  });
-
-  if (!clothMesh || !clothData) {
+  const clothMesh = flag.userData.clothMesh as
+    | THREE.Mesh<THREE.BufferGeometry, THREE.Material | THREE.Material[]>
+    | undefined;
+  if (!clothMesh) {
+    return;
+  }
+  const clothData = clothMesh.userData.cloth as ClothUserData | undefined;
+  if (!clothData) {
     return;
   }
 

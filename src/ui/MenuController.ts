@@ -201,7 +201,17 @@ export class MenuController {
     const panel = document.createElement('div');
     panel.className = 'menu-panel';
     panel.dataset.screen = 'gameover';
-    panel.innerHTML = `
+    const canvas = document.createElement('canvas');
+    canvas.className = 'menu-deadface';
+    canvas.width = 192;
+    canvas.height = 192;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      drawClassicFace(ctx, canvas.width / 2, canvas.height / 2, 78, 'dead');
+    }
+    panel.appendChild(canvas);
+    const body = document.createElement('div');
+    body.innerHTML = `
       <h1 class="menu-title menu-title-danger">Mine Triggered</h1>
       <p class="menu-subtitle">The chamber recorded your last move.</p>
       <div class="menu-actions">
@@ -209,8 +219,9 @@ export class MenuController {
         <button type="button" data-action="quit" class="menu-button menu-button-quiet">Quit to Main</button>
       </div>
     `;
-    panel.querySelector<HTMLButtonElement>('[data-action="restart"]')!.addEventListener('click', () => this.handlers.onRestart());
-    panel.querySelector<HTMLButtonElement>('[data-action="quit"]')!.addEventListener('click', () => this.handlers.onQuitToMain());
+    panel.appendChild(body);
+    body.querySelector<HTMLButtonElement>('[data-action="restart"]')!.addEventListener('click', () => this.handlers.onRestart());
+    body.querySelector<HTMLButtonElement>('[data-action="quit"]')!.addEventListener('click', () => this.handlers.onQuitToMain());
     return panel;
   }
 }

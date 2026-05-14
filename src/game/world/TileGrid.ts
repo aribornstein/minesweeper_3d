@@ -36,6 +36,7 @@ export class TileGrid {
   private hoverKey: string | undefined;
   private routeVisible = false;
   private elapsed = 0;
+  private animateAccumulator = 0;
 
   constructor(private tiles: TileState[], private level: LevelDefinition) {
     this.group.name = 'MinesweeperTileGrid';
@@ -122,17 +123,24 @@ export class TileGrid {
 
   animate(delta: number): void {
     this.elapsed += delta;
+    this.animateAccumulator += delta;
+    // Tile glow / edge pulse updates are visually subtle; throttle the per-tile material writes
+    // to ~20Hz so we don't pay 99 tiles * ~6 uniform uploads every render frame.
+    const updateTilePulses = this.animateAccumulator >= 1 / 20;
+    if (updateTilePulses) this.animateAccumulator = 0;
     const pulse = 0.09 + Math.sin(this.elapsed * 5) * 0.035;
     const hoverPulse = 0.18 + Math.sin(this.elapsed * 8.5) * 0.08;
     const edgePulse = 0.82 + Math.sin(this.elapsed * 4.2) * 0.18;
 
     this.visuals.forEach((visual) => {
-      visual.routeGlow.material.opacity = visual.routeGlow.visible ? pulse : 0;
-      visual.hoverGlow.material.opacity = visual.hoverGlow.visible ? hoverPulse : 0;
-      visual.edgeLights.forEach((edgeLight) => {
-        const baseOpacity = Number(edgeLight.material.userData.baseOpacity ?? edgeLight.material.opacity);
-        edgeLight.material.opacity = baseOpacity * edgePulse;
-      });
+      if (updateTilePulses) {
+        visual.routeGlow.material.opacity = visual.routeGlow.visible ? pulse : 0;
+        visual.hoverGlow.material.opacity = visual.hoverGlow.visible ? hoverPulse : 0;
+        visual.edgeLights.forEach((edgeLight) => {
+          const baseOpacity = Number(edgeLight.material.userData.baseOpacity ?? edgeLight.material.opacity);
+          edgeLight.material.opacity = baseOpacity * edgePulse;
+        });
+      }
 
       if (visual.marker?.userData.kind === 'mine') {
         visual.marker.rotation.y += delta * 0.8;
