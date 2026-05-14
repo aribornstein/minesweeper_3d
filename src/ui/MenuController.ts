@@ -105,10 +105,22 @@ export class MenuController {
         <button type="button" data-action="play" class="menu-button menu-button-primary">Play</button>
         <button type="button" data-action="settings" class="menu-button">Settings</button>
       </div>
+      <div class="menu-install-hint" hidden>
+        <p>For fullscreen landscape, tap <strong>Share → Add to Home Screen</strong>, then launch from the home icon.</p>
+        <button type="button" data-action="dismiss-install" class="menu-button menu-button-quiet menu-button-small">Got it</button>
+      </div>
       <p class="menu-footnote">Esc to pause · Right click / F to flag · WASD to move</p>
     `;
     panel.querySelector<HTMLButtonElement>('[data-action="play"]')!.addEventListener('click', () => this.handlers.onPlay());
     panel.querySelector<HTMLButtonElement>('[data-action="settings"]')!.addEventListener('click', () => this.show('settings'));
+    const hint = panel.querySelector<HTMLDivElement>('.menu-install-hint')!;
+    if (shouldShowInstallHint()) {
+      hint.hidden = false;
+    }
+    panel.querySelector<HTMLButtonElement>('[data-action="dismiss-install"]')!.addEventListener('click', () => {
+      hint.hidden = true;
+      try { localStorage.setItem('mw3d.installHintDismissed.v1', '1'); } catch { /* ignore */ }
+    });
     return panel;
   }
 
@@ -182,4 +194,19 @@ export class MenuController {
 
 function formatSensitivity(value: number): string {
   return `${value.toFixed(2)}x`;
+}
+
+function shouldShowInstallHint(): boolean {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') return false;
+  try {
+    if (localStorage.getItem('mw3d.installHintDismissed.v1') === '1') return false;
+  } catch { /* ignore */ }
+  // Treat any iOS Safari tab as the target. Skip when already standalone (installed PWA).
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPod|iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  if (!isIOS) return false;
+  const standalone = (navigator as Navigator & { standalone?: boolean }).standalone === true
+    || window.matchMedia('(display-mode: standalone)').matches
+    || window.matchMedia('(display-mode: fullscreen)').matches;
+  return !standalone;
 }
