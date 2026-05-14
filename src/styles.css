@@ -487,3 +487,131 @@ body[data-phase="escaped"] #app::before {
     font-size: 17px;
   }
 }
+/* === Menu overlay === */
+.menu-root {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 40%, rgba(8, 18, 28, 0.72), rgba(2, 4, 6, 0.92));
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.menu-root[hidden] {
+  display: none;
+}
+.menu-panel {
+  width: min(420px, 100%);
+  padding: 28px 28px 22px;
+  border: 1px solid rgba(76, 205, 244, 0.35);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(11, 24, 33, 0.95), rgba(5, 12, 18, 0.95));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 32px rgba(76, 205, 244, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #e9f6ff;
+  text-align: center;
+}
+.menu-panel[hidden] {
+  display: none;
+}
+.menu-title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7ad7ff;
+}
+.menu-subtitle {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: rgba(232, 245, 255, 0.7);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 18px 0 14px;
+}
+.menu-button {
+  appearance: none;
+  border: 1px solid rgba(76, 205, 244, 0.45);
+  background: linear-gradient(180deg, rgba(15, 51, 64, 0.95), rgba(7, 24, 31, 0.85));
+  color: #e9fbff;
+  padding: 12px 16px;
+  border-radius: 6px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.menu-button:hover, .menu-button:focus-visible {
+  background: rgba(20, 64, 78, 0.95);
+  outline: none;
+  border-color: rgba(122, 215, 255, 0.85);
+}
+.menu-button-primary {
+  background: linear-gradient(180deg, rgba(40, 132, 168, 0.95), rgba(20, 70, 90, 0.95));
+  border-color: rgba(122, 215, 255, 0.85);
+}
+.menu-button-quiet {
+  background: transparent;
+  border-color: rgba(232, 245, 255, 0.2);
+  color: rgba(232, 245, 255, 0.7);
+}
+.menu-footnote {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: rgba(232, 245, 255, 0.45);
+  letter-spacing: 0.06em;
+}
+.menu-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+  margin: 8px 0 6px;
+}
+.menu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(232, 245, 255, 0.75);
+}
+.menu-field-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.menu-range-value {
+  text-transform: none;
+  letter-spacing: 0;
+  color: #7ad7ff;
+  font-variant-numeric: tabular-nums;
+}
+.menu-field select, .menu-field input[type="range"] {
+  width: 100%;
+  background: rgba(7, 24, 31, 0.8);
+  border: 1px solid rgba(76, 205, 244, 0.35);
+  border-radius: 4px;
+  color: #e9fbff;
+  padding: 8px 10px;
+  font: inherit;
+}
+.menu-field input[type="range"] {
+  padding: 6px 4px;
+  accent-color: #7ad7ff;
+}
+.menu-quality-notice {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: rgba(255, 210, 120, 0.85);
+  letter-spacing: 0.04em;
+}

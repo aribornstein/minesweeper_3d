@@ -21,6 +21,8 @@ import { TileGrid } from './world/TileGrid';
 import { ViewModel } from './world/ViewModel';
 import { Hud } from '../ui/Hud';
 import { MobileControls } from '../ui/MobileControls';
+import { MenuController } from '../ui/MenuController';
+import { getSettings, subscribeSettings } from '../ui/Settings';
 
 declare global {
   interface Window {
@@ -94,6 +96,9 @@ export class Game {
   private currentLevel: LevelDefinition = createProceduralLevel();
   private readonly board = new MinesweeperBoard(this.currentLevel);
   private readonly hud = new Hud();
+  private menuController!: MenuController;
+  private menuOpen = true;
+  private unsubscribeSettings?: () => void;
   private readonly scene: THREE.Scene;
   private levelEnvironment!: LevelEnvironment;
   private exitDoor!: THREE.Group;
@@ -208,6 +213,7 @@ export class Game {
     window.addEventListener('keydown', this.onKeyDown);
     this.canvas.addEventListener('pointerdown', this.onPointerDown);
     this.canvas.addEventListener('contextmenu', this.onContextMenu);
+    document.addEventListener('pointerlockchange', this.onPointerLockChange);
     this.hud.onStartRequested(() => {
       if (this.phase === 'failed' || this.phase === 'escaped') {
         this.reset();
@@ -216,10 +222,25 @@ export class Game {
       }
       this.player.lock();
     });
+    this.menuController = new MenuController({
+      onPlay: () => this.handleMenuPlay(),
+      onResume: () => this.handleMenuResume(),
+      onRestart: () => this.handleMenuRestart(),
+      onQuitToMain: () => this.handleQuitToMain(),
+    });
+    this.unsubscribeSettings = subscribeSettings((settings) => {
+      this.player.setSensitivityMultiplier(settings.sensitivity);
+    });
+    // Sync once at boot in case PlayerController constructed after first emission.
+    this.player.setSensitivityMultiplier(getSettings().sensitivity);
   }
 
   private tick = (): void => {
     const delta = Math.min(this.clock.getDelta(), 0.05);
+    if (this.menuOpen) {
+      this.composer.render();
+      return;
+    }
     if (!this.levelTransition && this.phase !== 'failed' && this.phase !== 'escaped') {
       this.player.update(delta);
       this.enforceLockedExitBarrier();
@@ -426,6 +447,14 @@ export class Game {
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
+    if (event.code === 'Escape' && !this.menuOpen && this.phase === 'playing') {
+      event.preventDefault();
+      this.openPauseMenu();
+      return;
+    }
+    if (this.menuOpen) {
+      return;
+    }
     if (event.code === 'KeyR') {
       this.reset();
       return;
@@ -493,6 +522,101 @@ export class Game {
 
     this.player.activate();
     this.syncHud();
+  }
+
+  private openPauseMenu(): void {
+    this.menuOpen = true;
+    this.player.deactivate();
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    this.menuController.openPause();
+    this.clock.getDelta();
+  }
+
+  private handleMenuPlay(): void {
+    this.requestImmersiveMode();
+    this.menuOpen = false;
+    this.menuController.close();
+    if (this.phase === 'ready') {
+      this.startPlaying();
+    } else if (this.phase === 'failed' || this.phase === 'escaped') {
+      this.reset();
+    } else {
+      this.player.activate();
+    }
+    this.clock.getDelta();
+    this.player.lock();
+  }
+
+  private handleMenuResume(): void {
+    this.requestImmersiveMode();
+    this.menuOpen = false;
+    this.menuController.close();
+    this.player.activate();
+    this.clock.getDelta();
+    this.player.lock();
+  }
+
+  private handleMenuRestart(): void {
+    this.requestImmersiveMode();
+    this.menuOpen = false;
+    this.menuController.close();
+    this.reset();
+    this.clock.getDelta();
+    this.player.lock();
+  }
+
+  private handleQuitToMain(): void {
+    this.menuOpen = true;
+    this.reset();
+    this.phase = 'ready';
+    this.player.deactivate();
+    if (document.pointerLockElement) {
+      document.exitPointerLock();
+    }
+    this.menuController.show('main');
+    this.syncHud();
+    this.clock.getDelta();
+  }
+
+  private onPointerLockChange = (): void => {
+    if (this.menuOpen) return;
+    if (!document.pointerLockElement && this.phase === 'playing') {
+      this.openPauseMenu();
+    }
+  };
+
+  private requestImmersiveMode(): void {
+    // Only on touch devices; desktop users shouldn't be forced fullscreen.
+    if (!window.matchMedia('(pointer: coarse)').matches) return;
+
+    const root = document.documentElement as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void>;
+    };
+    const fsRequest = root.requestFullscreen?.bind(root) ?? root.webkitRequestFullscreen?.bind(root);
+    const lockOrientation = (): void => {
+      const orientation = screen.orientation as ScreenOrientation & {
+        lock?: (o: 'landscape' | 'portrait') => Promise<void>;
+      };
+      orientation.lock?.('landscape').catch(() => {
+        // iOS Safari and some browsers reject; let the player rotate manually.
+      });
+    };
+
+    if (!fsRequest) {
+      lockOrientation();
+      return;
+    }
+    if (document.fullscreenElement) {
+      lockOrientation();
+      return;
+    }
+    fsRequest()
+      .then(lockOrientation)
+      .catch(() => {
+        // User dismissed or browser disallowed; do nothing.
+      });
   }
 
   private applyRevealResult(result: ReturnType<MinesweeperBoard['reveal']>, originTile: TileState): void {

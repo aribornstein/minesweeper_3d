@@ -82,5 +82,16 @@ function readOverride(): QualityTier | undefined {
   if (raw === 'low' || raw === 'medium' || raw === 'high') {
     return raw;
   }
+  try {
+    const stored = localStorage.getItem('mw3d.settings.v1');
+    if (stored) {
+      const parsed = JSON.parse(stored) as { quality?: string };
+      if (parsed.quality === 'low' || parsed.quality === 'medium' || parsed.quality === 'high') {
+        return parsed.quality;
+      }
+    }
+  } catch {
+    // Ignore storage failures.
+  }
   return undefined;
 }

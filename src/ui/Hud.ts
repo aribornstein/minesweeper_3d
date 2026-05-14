@@ -33,7 +33,7 @@ export class Hud {
     document.body.dataset.phase = phase;
 
     if (this.startButton) {
-      this.startButton.hidden = phase === 'playing' || phase === 'solved' || phase === 'escaped';
+      this.startButton.hidden = true;
       const chamberLabel = this.level ? `Chamber ${String(this.level.levelNumber).padStart(2, '0')}` : 'Training Sector';
       this.startButton.textContent = phase === 'ready' ? `Enter ${chamberLabel}` : `Restart ${chamberLabel}`;
     }

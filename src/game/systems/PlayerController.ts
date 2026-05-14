@@ -11,6 +11,7 @@ export class PlayerController {
   private pitch = DEFAULT_PITCH;
   private yaw = DEFAULT_YAW;
   private movementEnabled = false;
+  private sensitivityMultiplier = 1;
   private pointerLocked = false;
   private pointerLockUnavailable = false;
 
@@ -82,8 +83,8 @@ export class PlayerController {
       return;
     }
 
-    this.yaw -= movementX * MOUSE_SENSITIVITY;
-    this.pitch -= movementY * MOUSE_SENSITIVITY;
+    this.yaw -= movementX * MOUSE_SENSITIVITY * this.sensitivityMultiplier;
+    this.pitch -= movementY * MOUSE_SENSITIVITY * this.sensitivityMultiplier;
     this.pitch = THREE.MathUtils.clamp(this.pitch, -1.1, 1.1);
     this.updateCameraRotation();
   }
@@ -121,6 +122,10 @@ export class PlayerController {
     this.pitch = DEFAULT_PITCH;
     this.yaw = DEFAULT_YAW;
     this.updateCameraRotation();
+  }
+
+  setSensitivityMultiplier(multiplier: number): void {
+    this.sensitivityMultiplier = Math.min(4, Math.max(0.1, multiplier));
   }
 
   private startPosition(): THREE.Vector3 {
